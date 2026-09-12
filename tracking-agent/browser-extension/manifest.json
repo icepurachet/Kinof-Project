@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "KINOF Lab Web Guard",
+  "version": "1.0.0",
+  "description": "บันทึกเฉพาะโดเมนและบล็อกโดเมนตามนโยบาย KINOF",
+  "permissions": [
+    "alarms",
+    "declarativeNetRequest",
+    "storage",
+    "webNavigation"
+  ],
+  "host_permissions": ["<all_urls>"],
+  "background": { "service_worker": "service-worker.js" },
+  "options_page": "options.html"
+}

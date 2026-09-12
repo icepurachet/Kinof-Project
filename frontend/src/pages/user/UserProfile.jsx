@@ -1,0 +1,208 @@
+import React, { useEffect, useState } from "react";
+import Card from "../../components/Card";
+import Pill from "../../components/Pill";
+import Button from "../../components/Button";
+import { User, Mail, Hash, BookOpen, AlertCircle, Award, KeyRound, ArrowRight } from "lucide-react";
+import { getMyProfileStats } from "../../api/auth";
+import { getMySchedule, toProfileScheduleRows } from "../../api/schedules";
+
+export default function UserProfile({ auth, setPage }) {
+  const user = auth?.user;
+  const [scheduleRows, setScheduleRows] = useState([]);
+  const [stats, setStats] = useState(null);
+  const fullName = [user?.firstName, user?.lastName].filter(Boolean).join(" ") || "ผู้ใช้งาน";
+  const userTypeLabel = user?.userType === "student" ? "นักศึกษา" : "บุคคลภายนอก";
+  const userScore = stats?.usageScore ?? 0;
+  const scoreBarClass = userScore >= 80 ? "bg-teal-500" : userScore >= 50 ? "bg-gold-gradient" : "bg-rose-500";
+
+  useEffect(() => {
+    if (user?.userType !== "student") {
+      setScheduleRows([]);
+      return;
+    }
+    getMySchedule()
+      .then((items) => setScheduleRows(toProfileScheduleRows(items)))
+      .catch(() => setScheduleRows([]));
+  }, [user?.userType, user?.id]);
+
+  useEffect(() => {
+    getMyProfileStats().then(setStats).catch(() => setStats(null));
+  }, [user?.id]);
+
+  return (
+    <div className="w-full max-w-6xl mx-auto">
+      <div className="mb-5">
+        <h1 className="text-xl md:text-2xl font-bold text-ink tracking-tight">โปรไฟล์ผู้ใช้งาน</h1>
+        <p className="text-caption mt-0.5">ข้อมูลส่วนตัว คะแนนพฤติกรรม และตารางเรียน</p>
+      </div>
+
+      <Card className="p-5 md:p-6 mb-7 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="flex items-start gap-3">
+          <div className="w-10 h-10 rounded-xl bg-navy-50 text-navy-800 flex items-center justify-center shrink-0">
+            <KeyRound size={18} />
+          </div>
+          <div>
+            <div className="text-xs font-semibold text-muted uppercase tracking-wider mb-1">รหัสเข้าห้องสำรอง</div>
+            <p className="text-sm text-slate-700">ขอ OTP ทางอีเมล ใช้เมื่อสแกนหน้าไม่สำเร็จที่ Kiosk</p>
+          </div>
+        </div>
+        {typeof setPage === "function" && (
+          <Button variant="secondary" icon={ArrowRight} onClick={() => setPage("entry-otp")}>
+            ขอรหัสเข้าห้อง
+          </Button>
+        )}
+      </Card>
+
+      {/* Grid Profile & Stats */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-7">
+        {/* การ์ดข้อมูลส่วนตัว */}
+        <Card className="p-5 md:p-6 lg:col-span-2 flex flex-col justify-between">
+          <div>
+            <div className="flex items-center gap-4 mb-6">
+              <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-navy-900 font-bold text-xl shadow-md shrink-0 bg-gold-gradient">
+                {user?.firstName?.[0] ?? "ผ"}
+              </div>
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <h2 className="font-bold text-ink text-base md:text-lg">{fullName}</h2>
+                  <Pill tone="blue" withDot>{userTypeLabel}</Pill>
+                </div>
+                <p className="text-caption">ข้อมูลบัญชีจากระบบ KINOF</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 text-xs border-t border-slate-100 pt-5">
+              <div className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-50/70 border border-slate-100">
+                <Mail size={15} className="text-slate-400 shrink-0" />
+                <div>
+                  <span className="text-muted block text-[10px]">อีเมลมหาวิทยาลัย</span>
+                  <span className="text-slate-800 font-medium">{user?.email ?? "—"}</span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-50/70 border border-slate-100">
+                <User size={15} className="text-slate-400 shrink-0" />
+                <div>
+                  <span className="text-muted block text-[10px]">ประเภทผู้ใช้งาน</span>
+                  <span className="text-slate-800 font-medium">{user?.userType ?? "—"}</span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-50/70 border border-slate-100">
+                <Hash size={15} className="text-slate-400 shrink-0" />
+                <div>
+                  <span className="text-muted block text-[10px]">รหัสผู้ใช้ในระบบ</span>
+                  <span className="text-slate-800 font-medium">{user?.id ?? "—"}</span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-50/70 border border-slate-100">
+                <Award size={15} className="text-slate-400 shrink-0" />
+                <div>
+                  <span className="text-muted block text-[10px]">สถานะสิทธิ์การจอง</span>
+                  <span className="text-emerald-600 font-medium">ปกติ (ใช้งานได้สมบูรณ์)</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </Card>
+
+        {/* การ์ดสถิติ, คะแนน และประวัติการหักคะแนน */}
+        <Card className="p-5 md:p-6 flex flex-col gap-4 justify-between">
+          <div>
+            <div className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">
+              สถิติการใช้งานห้องแล็บ
+            </div>
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              <div className="text-center border border-slate-100 bg-slate-50/60 rounded-2xl py-3">
+                <div className="font-bold text-ink text-lg">{stats?.bookingCount ?? "—"}</div>
+                <div className="text-[10px] text-muted mt-0.5">ครั้งที่จองสำเร็จ</div>
+              </div>
+              <div className="text-center border border-slate-100 bg-slate-50/60 rounded-2xl py-3">
+                <div className="font-bold text-ink text-lg">{stats ? Math.round(stats.totalUsageMinutes / 6) / 10 : "—"}</div>
+                <div className="text-[10px] text-muted mt-0.5">ชั่วโมงที่เข้าใช้งาน</div>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-100 bg-slate-50/60 p-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-semibold text-slate-700">คะแนนพฤติกรรม</span>
+                <span className="text-sm font-bold text-navy-800">{userScore}<span className="text-muted font-medium text-xs"> / 100</span></span>
+              </div>
+              <div className="h-2 w-full rounded-full bg-slate-200/70 overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all duration-500 ${scoreBarClass}`}
+                  style={{ width: `${userScore}%` }}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <div className="text-xs font-semibold text-slate-700 mb-2 flex items-center gap-1.5">
+              <AlertCircle size={14} className="text-slate-400" />
+              <span>ประวัติการหักคะแนน</span>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              {stats?.penalties?.length > 0 ? (
+                stats.penalties.map((item) => (
+                  <div
+                    key={item.id}
+                    className="border border-rose-100 rounded-xl p-3 bg-rose-50/30 text-xs"
+                  >
+                    <div className="font-semibold text-rose-800 mb-0.5">
+                      {new Date(item.createdAt).toLocaleDateString("th-TH")} • หัก {item.points} คะแนน
+                    </div>
+                    <div className="text-slate-600 font-light leading-relaxed text-[11px]">
+                      สาเหตุ: {item.reason}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="text-xs text-muted text-center py-4 border border-dashed border-slate-200 rounded-xl">
+                  ไม่มีประวัติการหักคะแนน
+                </div>
+              )}
+            </div>
+          </div>
+        </Card>
+      </div>
+
+      {/* ตารางเรียน */}
+      <Card className="p-5 md:p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <BookOpen size={17} className="text-slate-500" />
+          <h3 className="text-sm md:text-base font-bold text-ink">ตารางเรียนประจำภาคการศึกษา</h3>
+        </div>
+
+        <div className="border border-slate-200/80 rounded-2xl overflow-hidden">
+          <div className="overflow-x-auto">
+            <div className="flex flex-col divide-y divide-slate-100 min-w-[500px]">
+              {scheduleRows && scheduleRows.length > 0 ? (
+                scheduleRows.map((r, i) => (
+                  <div
+                    key={`${r.day}-${r.course}-${i}`}
+                    className="flex items-center text-xs hover:bg-slate-50/50 transition-colors"
+                  >
+                    <div className="bg-slate-50 text-slate-700 font-semibold px-5 py-3.5 w-32 shrink-0 border-r border-slate-100">
+                      {r.day}
+                    </div>
+                    <div className="px-5 py-3.5 flex-1 font-medium text-slate-800">
+                      {r.course || "— ไม่มีคาบเรียน —"}
+                    </div>
+                    <div className="px-5 py-3.5 text-slate-500 w-60 shrink-0 text-right font-light">
+                      {r.time} {r.room && <span className="font-medium text-slate-700">· {r.room}</span>}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="text-xs text-muted text-center py-8">ไม่พบข้อมูลตารางเรียน</div>
+              )}
+            </div>
+          </div>
+        </div>
+      </Card>
+    </div>
+  );
+}

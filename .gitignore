@@ -1,0 +1,33 @@
+# Dependencies and build output
+node_modules/
+dist/
+build/
+coverage/
+.npm-cache/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Python runtime and downloaded models
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.insightface/
+*.onnx
+
+# Runtime data
+storage/
+logs/
+*.log
+*.pid
+
+# Editor and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

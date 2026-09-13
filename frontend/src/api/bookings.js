@@ -39,6 +39,50 @@ export async function createBooking({ roomId, startTime, endTime, inviteeUserIds
   return normalizeBooking(booking);
 }
 
+export async function getBookingGroupStatus(bookingId) {
+  const booking = await apiFetch(`/bookings/${Number(bookingId)}`);
+  const members = (booking.members ?? []).map((member) => ({
+    id: Number(member.user_id),
+    name: member.username ?? `ผู้ใช้ #${member.user_id}`,
+    status: member.invite_status,
+    respondedAt: member.responded_at ?? null,
+  }));
+
+  const isExpired =
+    booking.status === "expired" ||
+    (booking.status === "pending" &&
+      booking.expires_at &&
+      new Date(booking.expires_at).getTime() <= Date.now());
+
+  return {
+    id: Number(booking.booking_id),
+    status: booking.status,
+    expiresAt: booking.expires_at,
+    members,
+    isExpired,
+    canConfirm:
+      booking.status === "pending" &&
+      !isExpired &&
+      members.length > 0 &&
+      members.every((member) => member.status === "accepted"),
+    hasDeclined: members.some((member) => member.status === "declined"),
+  };
+}
+
+export async function confirmBooking(bookingId, roomId) {
+  const booking = await apiFetch(`/bookings/${Number(bookingId)}/confirm-room`, {
+    method: "PATCH",
+    body: JSON.stringify({ room_id: Number(roomId) }),
+  });
+  return normalizeBooking(booking);
+}
+
+export function cancelPendingBooking(bookingId) {
+  return apiFetch(`/bookings/${Number(bookingId)}/cancel`, {
+    method: "PATCH",
+  });
+}
+
 export function searchUsers(query) {
   return apiFetch(`/users/search?q=${encodeURIComponent(query)}`);
 }

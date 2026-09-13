@@ -30,9 +30,9 @@ import {
 const POLL_INTERVAL_MS = 25000;
 
 const ROOM_META = {
-  open: { label: "เปิดใช้งาน", tone: "green", border: "border-emerald-300", surface: "bg-emerald-50" },
-  closed: { label: "ปิด", tone: "red", border: "border-rose-300", surface: "bg-rose-50" },
-  maintenance: { label: "ปรับปรุง", tone: "amber", border: "border-amber-300", surface: "bg-amber-50" },
+  open: { label: "เปิดใช้งาน", tone: "green", dot: "bg-emerald-500", border: "border-emerald-300", surface: "bg-emerald-50" },
+  closed: { label: "ปิด", tone: "red", dot: "bg-rose-500", border: "border-rose-300", surface: "bg-rose-50" },
+  maintenance: { label: "ปรับปรุง", tone: "amber", dot: "bg-amber-500", border: "border-amber-300", surface: "bg-amber-50" },
 };
 
 const SEAT_META = {
@@ -261,8 +261,10 @@ export default function AdminTracking({
                   <Metric label="Agent ออนไลน์" value={`${item.agentOnlineCount}/${item.seatCount}`} icon={Wifi} />
                   <Metric label="เครื่องทั้งหมด" value={item.seatCount} icon={Monitor} />
                 </div>
-                <div className="mt-5 pt-4 border-t border-slate-100 text-xs font-semibold text-navy-800 flex items-center justify-between">
-                  จัดการห้องและเครื่อง <Radar size={15} />
+                <div className="mt-5 pt-4 border-t border-slate-100">
+                  <span className="flex w-full items-center justify-center rounded-xl bg-navy-800 px-4 py-2.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-navy-900">
+                    จัดการห้องและเครื่อง
+                  </span>
                 </div>
               </Card>
             );
@@ -314,13 +316,13 @@ export default function AdminTracking({
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button size="sm" variant="success" icon={Power} disabled={busy} onClick={() => setBulkAction("open")}>
+              <Button size="sm" variant="secondary" icon={Power} disabled={busy} onClick={() => setBulkAction("open")} className="!border-emerald-200 !bg-emerald-50 !text-emerald-800 hover:!bg-emerald-100">
                 เปิดใช้งานทั้งหมด
               </Button>
-              <Button size="sm" variant="danger" icon={LogOut} disabled={busy} onClick={() => setBulkAction("close")}>
+              <Button size="sm" variant="secondary" icon={LogOut} disabled={busy} onClick={() => setBulkAction("close")} className="!border-rose-200 !bg-rose-50 !text-rose-800 hover:!bg-rose-100">
                 ระงับและออกจากระบบ
               </Button>
-              <Button size="sm" variant="secondary" icon={Wrench} disabled={busy} onClick={() => setBulkAction("maintenance")}>
+              <Button size="sm" variant="secondary" icon={Wrench} disabled={busy} onClick={() => setBulkAction("maintenance")} className="!border-amber-200 !bg-amber-50 !text-amber-800 hover:!bg-amber-100">
                 ปรับปรุงทั้งหมด
               </Button>
             </div>
@@ -341,9 +343,9 @@ export default function AdminTracking({
                   {item.agentOnline ? <Wifi size={14} className="text-emerald-600" /> : <WifiOff size={14} className="text-rose-500" />}
                 </div>
                 <div className="font-bold text-ink mt-3">{item.label}</div>
-                <div className="text-[11px] text-slate-600 mt-1">{meta.label}</div>
+                <div className="text-xs text-slate-600 mt-1">{meta.label}</div>
                 {item.session && (
-                  <div className="text-[10px] text-slate-500 truncate mt-2">{item.session.user.displayName}</div>
+                  <div className="text-xs text-slate-500 truncate mt-2">{item.session.user.displayName}</div>
                 )}
               </button>
             );
@@ -505,11 +507,11 @@ function BulkConfirm({
 
         <div className="grid grid-cols-2 gap-3 my-5">
           <div className="rounded-xl bg-slate-50 border border-slate-100 p-3">
-            <div className="text-[11px] text-muted">ห้องที่ควบคุม</div>
+            <div className="text-xs text-muted">ห้องที่ควบคุม</div>
             <div className="text-sm font-bold text-ink mt-1">{room.name}</div>
           </div>
           <div className="rounded-xl bg-slate-50 border border-slate-100 p-3">
-            <div className="text-[11px] text-muted">เครื่องที่ได้รับผลกระทบ</div>
+            <div className="text-xs text-muted">เครื่องที่ได้รับผลกระทบ</div>
             <div className="text-sm font-bold text-ink mt-1">{machineCount} เครื่อง</div>
           </div>
         </div>
@@ -558,7 +560,7 @@ function Legend({ items }) {
     <Card variant="flat" className="p-4 mb-5 flex flex-wrap gap-x-5 gap-y-2">
       {items.map((item) => (
         <div key={item.key} className="flex items-center gap-2 text-xs text-slate-600">
-          <span className={`w-2.5 h-2.5 rounded-full ${item.surface} border ${item.border}`} /> {item.label}
+          <span className={`w-3 h-3 rounded-full ${item.dot} ring-2 ring-white shadow-sm`} /> {item.label}
         </div>
       ))}
     </Card>
@@ -570,7 +572,7 @@ function Metric({ label, value, icon: Icon }) {
     <div className="rounded-xl bg-slate-50 border border-slate-100 p-3">
       <Icon size={14} className="text-slate-400 mb-2" />
       <div className="text-lg font-bold text-ink">{value}</div>
-      <div className="text-[11px] text-muted">{label}</div>
+      <div className="text-xs text-muted">{label}</div>
     </div>
   );
 }
@@ -578,7 +580,7 @@ function Metric({ label, value, icon: Icon }) {
 function Info({ label, value, className = "" }) {
   return (
     <div className={`rounded-xl bg-slate-50 border border-slate-100 p-3 ${className}`}>
-      <div className="text-[11px] text-muted">{label}</div>
+      <div className="text-xs text-muted">{label}</div>
       <div className="text-sm font-semibold text-ink mt-1">{value}</div>
     </div>
   );

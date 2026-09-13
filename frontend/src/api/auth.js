@@ -1,15 +1,99 @@
 export const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
 
+const AUTH_KEY = "kinofAuth";
+const SESSION_ID_KEY = "kinofSessionId";
+const TAB_SESSION_KEY = "kinofTabSessionId";
+const TAKEN_OVER_KEY = "kinofSessionTakenOver";
+export const AUTH_CHANGED_EVENT = "kinof-auth-changed";
+
+function parseAuthJson(raw) {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+export function peekStoredAuth() {
+  return parseAuthJson(localStorage.getItem(AUTH_KEY) ?? sessionStorage.getItem(AUTH_KEY));
+}
+
 function readStoredAuth() {
   try {
-    return JSON.parse(sessionStorage.getItem("kinofAuth"));
+    if (sessionStorage.getItem(TAKEN_OVER_KEY)) return null;
+    const sharedAuth = localStorage.getItem(AUTH_KEY);
+    const legacyAuth = sessionStorage.getItem(AUTH_KEY);
+    const parsed = parseAuthJson(sharedAuth ?? legacyAuth);
+    if (!parsed) return null;
+
+    if (!sharedAuth) {
+      localStorage.setItem(AUTH_KEY, JSON.stringify(parsed));
+      sessionStorage.removeItem(AUTH_KEY);
+      if (parsed.sessionId) localStorage.setItem(SESSION_ID_KEY, parsed.sessionId);
+    }
+
+    const tabSessionId = sessionStorage.getItem(TAB_SESSION_KEY);
+    if (tabSessionId && parsed.sessionId && tabSessionId !== parsed.sessionId) return null;
+    if (!tabSessionId && parsed.sessionId) sessionStorage.setItem(TAB_SESSION_KEY, parsed.sessionId);
+    return parsed;
   } catch {
     return null;
   }
 }
 
 function storeAuth(auth) {
-  sessionStorage.setItem("kinofAuth", JSON.stringify(auth));
+  localStorage.setItem(AUTH_KEY, JSON.stringify(auth));
+  sessionStorage.removeItem(AUTH_KEY);
+  if (auth?.sessionId) localStorage.setItem(SESSION_ID_KEY, auth.sessionId);
+  window.dispatchEvent(new Event(AUTH_CHANGED_EVENT));
+}
+
+export function beginBrowserSession(auth) {
+  const sessionId = crypto.randomUUID();
+  const next = { ...auth, sessionId };
+  sessionStorage.removeItem(TAKEN_OVER_KEY);
+  sessionStorage.setItem(TAB_SESSION_KEY, sessionId);
+  storeAuth(next);
+  return next;
+}
+
+export function ensureBrowserSession(auth) {
+  if (!auth) return null;
+  const sessionId = auth.sessionId || localStorage.getItem(SESSION_ID_KEY) || crypto.randomUUID();
+  const next = { ...auth, sessionId };
+  sessionStorage.removeItem(TAKEN_OVER_KEY);
+  sessionStorage.setItem(TAB_SESSION_KEY, sessionId);
+  storeAuth(next);
+  return next;
+}
+
+export function adoptBrowserSession() {
+  sessionStorage.removeItem(TAKEN_OVER_KEY);
+  const auth = peekStoredAuth();
+  return auth?.accessToken ? ensureBrowserSession(auth) : null;
+}
+
+export function markSessionTakenOver() {
+  sessionStorage.setItem(TAKEN_OVER_KEY, "1");
+  sessionStorage.removeItem(TAB_SESSION_KEY);
+}
+
+export function isSessionTakenOver() {
+  return sessionStorage.getItem(TAKEN_OVER_KEY) === "1";
+}
+
+export function getTabSessionId() {
+  return sessionStorage.getItem(TAB_SESSION_KEY);
+}
+
+function clearStoredAuth() {
+  localStorage.removeItem(AUTH_KEY);
+  localStorage.removeItem(SESSION_ID_KEY);
+  sessionStorage.removeItem(AUTH_KEY);
+  sessionStorage.removeItem(TAB_SESSION_KEY);
+  sessionStorage.removeItem(TAKEN_OVER_KEY);
+  window.dispatchEvent(new Event(AUTH_CHANGED_EVENT));
 }
 
 async function parseResponse(response) {
@@ -63,6 +147,7 @@ export async function apiFetch(path, options = {}) {
       const nextAuth = {
         accessToken: refreshed.access_token,
         refreshToken: refreshed.refresh_token,
+        sessionId: auth.sessionId,
         user: {
           ...refreshed.user,
           userType: refreshed.user.role,
@@ -73,7 +158,7 @@ export async function apiFetch(path, options = {}) {
       headers.Authorization = `Bearer ${nextAuth.accessToken}`;
       response = await fetch(`${API_URL}${path}`, { ...options, headers });
     } catch {
-      sessionStorage.removeItem("kinofAuth");
+      clearStoredAuth();
       throw new Error("เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่");
     }
   }
@@ -200,4 +285,4 @@ export function getActiveEntryOtp() {
   }));
 }
 
-export { readStoredAuth, storeAuth };
+export { clearStoredAuth, readStoredAuth, storeAuth };

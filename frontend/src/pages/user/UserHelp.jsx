@@ -1,11 +1,17 @@
 import React, { useEffect, useState, useRef } from "react";
-import { Camera, Image as ImageIcon, X, Plus, Eye, Calendar, FileText, Send, HelpCircle } from "lucide-react";
+import { Camera, Image as ImageIcon, X, Plus, Eye, Calendar, FileText, Send, History, ArrowLeft } from "lucide-react";
 import Card from "../../components/Card";
 import Pill from "../../components/Pill";
 import Button from "../../components/Button";
 import { createProblemReport, loadProblemImage } from "../../api/problemReports";
 
-export default function UserHelp({ problemReports = [], onSubmitted, notify }) {
+const REPORT_STATUS_TABS = [
+  { key: "รอดำเนินการ", activeClass: "border-amber-300 bg-amber-50 text-amber-800", countClass: "bg-amber-100 text-amber-800" },
+  { key: "กำลังดำเนินการ", activeClass: "border-blue-300 bg-blue-50 text-blue-800", countClass: "bg-blue-100 text-blue-800" },
+  { key: "เสร็จสิ้น", activeClass: "border-emerald-300 bg-emerald-50 text-emerald-800", countClass: "bg-emerald-100 text-emerald-800" },
+];
+
+export default function UserHelp({ problemReports = [], onSubmitted, onRefresh, notify }) {
   const [category, setCategory] = useState("");
   const [description, setDescription] = useState("");
   const [images, setImages] = useState([]);
@@ -13,6 +19,8 @@ export default function UserHelp({ problemReports = [], onSubmitted, notify }) {
   const [selectedReport, setSelectedReport] = useState(null);
   const [previewImage, setPreviewImage] = useState(null);
   const [loadedImages, setLoadedImages] = useState({});
+  const [activeReportStatus, setActiveReportStatus] = useState("รอดำเนินการ");
+  const [showHistory, setShowHistory] = useState(false);
 
   const fileInputRef = useRef(null);
   const cameraInputRef = useRef(null);
@@ -50,6 +58,11 @@ export default function UserHelp({ problemReports = [], onSubmitted, notify }) {
     setImages((prev) => prev.filter((_, index) => index !== indexToRemove));
   };
 
+  const openHistory = () => {
+    setShowHistory(true);
+    Promise.resolve(onRefresh?.()).catch(() => {});
+  };
+
   const handleSubmit = async () => {
     const trimmedCategory = category.trim();
     const trimmedDescription = description.trim();
@@ -67,6 +80,7 @@ export default function UserHelp({ problemReports = [], onSubmitted, notify }) {
       setDescription("");
       images.forEach((image) => URL.revokeObjectURL(image.preview));
       setImages([]);
+      setActiveReportStatus("รอดำเนินการ");
     } catch (error) {
       notify?.(error.message);
     }
@@ -74,19 +88,55 @@ export default function UserHelp({ problemReports = [], onSubmitted, notify }) {
 
   return (
     <div className="w-full max-w-6xl mx-auto">
-      <div className="mb-5">
-        <h1 className="text-xl md:text-2xl font-bold text-ink tracking-tight">ศูนย์ช่วยเหลือและแจ้งปัญหา</h1>
-        <p className="text-caption mt-0.5">แจ้งปัญหาการใช้งานห้องแล็บ อุปกรณ์ หรือข้อสงสัยอื่นๆ</p>
-      </div>
+      {showHistory ? (
+        <div className="mb-6 flex items-center justify-between gap-4 rounded-3xl bg-brand-gradient p-6 text-white shadow-blue-glow md:p-8">
+          <div>
+            <h1 className="text-xl font-bold tracking-tight md:text-2xl">ประวัติการส่งคำขอความช่วยเหลือ</h1>
+            <p className="mt-1 text-xs text-white/90">คุณสามารถดูประวัติการส่งความช่วยเหลือและดูสถานะคำขอได้ที่นี่</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowHistory(false)}
+            aria-label="กลับไปหน้าส่งคำร้อง"
+            title="กลับไปหน้าส่งคำร้อง"
+            className="shrink-0 inline-flex items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/10 p-2.5 text-white hover:bg-white/20 transition-colors"
+          >
+            <ArrowLeft size={20} />
+            <span className="hidden sm:inline text-xs font-semibold">กลับไปแจ้งปัญหา</span>
+          </button>
+        </div>
+      ) : (
+        <div className="mb-6 rounded-3xl bg-brand-gradient p-6 text-white shadow-blue-glow md:p-8">
+          <h1 className="text-xl font-bold tracking-tight md:text-2xl">ต้องการความช่วยเหลือ?</h1>
+          <p className="mt-1 text-xs text-white/90">คุณสามารถติดต่อฝ่ายสนับสนุนหรือแจ้งปัญหาการใช้งานได้ที่นี่</p>
+        </div>
+      )}
 
-      <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/*" multiple className="hidden" />
-      <input type="file" ref={cameraInputRef} onChange={handleFileChange} accept="image/*" capture="environment" className="hidden" />
+      {!showHistory && (
+        <>
+          <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/*" multiple className="hidden" />
+          <input type="file" ref={cameraInputRef} onChange={handleFileChange} accept="image/*" capture="environment" className="hidden" />
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div>
         {/* แบบฟอร์มแจ้งปัญหา */}
         <Card className="p-5 md:p-6">
-          <div className="rounded-2xl text-white p-4 mb-5 text-xs font-light leading-relaxed shadow-blue-glow border border-navy-700/30 bg-brand-gradient">
-            พบปัญหาการใช้งานคอมพิวเตอร์หรือระบบจอง? กรอกข้อมูลด้านล่างเพื่อส่งเรื่องให้เจ้าหน้าที่ตรวจสอบ
+          <div className="mb-5 flex items-center justify-between gap-4 border-b border-slate-100 pb-4">
+            <h2 className="text-base font-bold text-ink md:text-lg">ส่งข้อความแจ้งปัญหาของคุณ</h2>
+            <button
+              type="button"
+              onClick={openHistory}
+              aria-label="เปิดประวัติการส่งคำร้อง"
+              title="ประวัติการส่งคำร้อง"
+              className="relative inline-flex items-center justify-center gap-2 rounded-xl border border-navy-100 bg-navy-50 px-3.5 py-2.5 text-navy-800 hover:bg-navy-100 transition-colors"
+            >
+              <History size={20} />
+              <span className="text-xs font-semibold">ประวัติคำร้อง</span>
+              {problemReports.length > 0 && (
+                <span className="absolute -right-2 -top-2 min-w-5 rounded-full bg-navy-800 px-1.5 py-0.5 text-center text-xs leading-none text-white shadow-sm">
+                  {problemReports.length}
+                </span>
+              )}
+            </button>
           </div>
 
           <div className="space-y-4">
@@ -116,7 +166,7 @@ export default function UserHelp({ problemReports = [], onSubmitted, notify }) {
                 onChange={(e) => setDescription(e.target.value)}
                 rows={4}
                 placeholder="ระบุรายละเอียด เช่น หมายเลขเครื่อง อาการ หรือภาพประกอบเพื่อความสะดวกรวดเร็ว..."
-                className="w-full text-xs border border-slate-200 rounded-xl p-3.5 focus:outline-none focus:border-navy-800 focus:ring-2 focus:ring-navy-800/10 resize-none placeholder:text-slate-300"
+                className="w-full text-xs border border-slate-200 rounded-xl p-3.5 focus:outline-none focus:border-navy-800 focus:ring-2 focus:ring-navy-800/10 resize-none placeholder:text-slate-400"
               />
             </div>
 
@@ -126,7 +176,7 @@ export default function UserHelp({ problemReports = [], onSubmitted, notify }) {
                 <span className="text-caption">สูงสุด 3 รูป</span>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid w-full max-w-xl grid-cols-3 gap-3">
                 {[0, 1, 2].map((index) => {
                   const imgUrl = images[index];
                   return (
@@ -151,7 +201,7 @@ export default function UserHelp({ problemReports = [], onSubmitted, notify }) {
                           className="w-full h-full border border-slate-200/80 rounded-2xl flex flex-col items-center justify-center gap-1 bg-slate-50/60 hover:bg-slate-100 hover:border-slate-300 transition-all text-slate-400 hover:text-slate-600 disabled:opacity-40"
                         >
                           <Plus size={20} />
-                          <span className="text-[10px] font-medium">เพิ่มรูป</span>
+                          <span className="text-xs font-medium">เพิ่มรูป</span>
                         </button>
                       )}
                     </div>
@@ -174,80 +224,109 @@ export default function UserHelp({ problemReports = [], onSubmitted, notify }) {
           </div>
         </Card>
 
-        {/* ประวัติการส่งคำร้อง */}
-        <Card className="p-5 md:p-6">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <HelpCircle size={17} className="text-slate-500" />
-              <h3 className="text-sm md:text-base font-bold text-ink">ประวัติการส่งคำร้องของคุณ</h3>
-            </div>
-            <span className="text-caption">
-              {problemReports.length} คำร้อง
-            </span>
           </div>
+        </>
+      )}
 
-          <div className="flex flex-col gap-3">
-            {problemReports.map((report) => (
-                <div
-                  key={report.id}
-                  onClick={() => setSelectedReport(report)}
-                  className="group flex flex-col border border-slate-200/80 rounded-2xl p-4 text-xs gap-2.5 bg-white hover:border-slate-300 hover:shadow-soft transition-all cursor-pointer"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-ink font-bold group-hover:text-navy-800 transition-colors truncate pr-2">
-                      {report.category}
-                    </span>
-                    <Pill
-                      tone={
-                        report.status === "เสร็จสิ้น"
-                          ? "green"
-                          : report.status === "กำลังดำเนินการ"
-                          ? "blue"
-                          : "amber"
-                      }
-                      withDot
+      {/* ประวัติการส่งคำร้อง */}
+      {showHistory && (
+        <Card className="p-5 md:p-8">
+              <div className="grid grid-cols-3 gap-2 mb-4" role="tablist" aria-label="สถานะคำร้อง">
+                {REPORT_STATUS_TABS.map((tab) => {
+                  const isActive = activeReportStatus === tab.key;
+                  const count = problemReports.filter((report) => report.status === tab.key).length;
+                  return (
+                    <button
+                      key={tab.key}
+                      type="button"
+                      role="tab"
+                      aria-selected={isActive}
+                      onClick={() => setActiveReportStatus(tab.key)}
+                      className={`flex items-center justify-center gap-1.5 rounded-xl border px-2 py-2.5 text-xs font-semibold transition-colors ${
+                        isActive
+                          ? tab.activeClass
+                          : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:border-slate-300"
+                      }`}
                     >
-                      {report.status}
-                    </Pill>
-                  </div>
-
-                  <p className="text-slate-500 text-[11px] line-clamp-2 leading-relaxed font-light">
-                    {report.description}
-                  </p>
-
-                  <div className="flex items-center justify-between pt-2 border-t border-slate-100">
-                    <div className="flex items-center gap-2">
-                      {report.images && report.images.length > 0 && (
-                        <div className="flex gap-1">
-                          {report.images.map((img, i) => (
-                            <img key={i} src={loadedImages[img.id]} alt="attachment" className="w-6 h-6 rounded-md object-cover border border-slate-200" />
-                          ))}
-                        </div>
-                      )}
-                      <span className="text-[10px] text-muted flex items-center gap-1">
-                        <Calendar size={11} /> {report.createdAt}
+                      <span>{tab.key}</span>
+                      <span className={`min-w-5 rounded-full px-1.5 py-0.5 text-xs leading-none ${isActive ? tab.countClass : "bg-slate-100 text-slate-600"}`}>
+                        {count}
                       </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="flex flex-col gap-3">
+                {problemReports.filter((report) => report.status === activeReportStatus).map((report) => (
+                  <div
+                    key={report.id}
+                    onClick={() => setSelectedReport(report)}
+                    className="group flex flex-col border border-slate-200/80 rounded-2xl p-4 text-xs gap-2.5 bg-white hover:border-slate-300 hover:shadow-soft transition-all cursor-pointer"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-ink font-bold group-hover:text-navy-800 transition-colors truncate pr-2">
+                        {report.category}
+                      </span>
+                      <Pill
+                        tone={report.status === "เสร็จสิ้น" ? "green" : report.status === "กำลังดำเนินการ" ? "blue" : "amber"}
+                        withDot
+                      >
+                        {report.status}
+                      </Pill>
                     </div>
 
-                    <span className="text-[11px] text-navy-800 font-medium flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
-                      <Eye size={12} /> ดูรายละเอียด
-                    </span>
-                  </div>
-                </div>
-              ))}
+                    <p className="text-slate-500 text-xs line-clamp-2 leading-relaxed font-light">
+                      {report.description}
+                    </p>
 
-            {problemReports.length === 0 && (
-              <div className="text-xs text-muted text-center py-16 border border-dashed border-slate-200 rounded-2xl bg-slate-50/50">
-                ยังไม่มีประวัติการส่งคำร้อง
+                    {report.staffNote && (
+                      <div className="rounded-xl border border-blue-100 bg-blue-50 px-3 py-2.5">
+                        <div className="text-xs font-semibold text-navy-900">อัปเดตจากเจ้าหน้าที่</div>
+                        <p className="mt-1 text-xs text-slate-700 whitespace-pre-line">{report.staffNote}</p>
+                      </div>
+                    )}
+
+                    {report.adminComment && (
+                      <div className="rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2.5">
+                        <div className="text-xs font-semibold text-emerald-900">ข้อความตอบกลับจากผู้ดูแลระบบ</div>
+                        <p className="mt-1 text-xs text-slate-700 whitespace-pre-line">{report.adminComment}</p>
+                      </div>
+                    )}
+
+                    <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                      <div className="flex items-center gap-2">
+                        {report.images && report.images.length > 0 && (
+                          <div className="flex gap-1">
+                            {report.images.map((img, i) => (
+                              <img key={i} src={loadedImages[img.id]} alt="attachment" className="w-6 h-6 rounded-md object-cover border border-slate-200" />
+                            ))}
+                          </div>
+                        )}
+                        <span className="text-xs text-muted flex items-center gap-1">
+                          <Calendar size={11} /> {report.createdAt}
+                        </span>
+                      </div>
+
+                      <span className="text-xs text-navy-800 font-medium flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
+                        <Eye size={12} /> ดูรายละเอียด
+                      </span>
+                    </div>
+                  </div>
+                ))}
+
+                {problemReports.filter((report) => report.status === activeReportStatus).length === 0 && (
+                  <div className="text-xs text-muted text-center py-16 border border-dashed border-slate-200 rounded-2xl bg-slate-50/50">
+                    ยังไม่มีคำร้องในสถานะ{activeReportStatus}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
         </Card>
-      </div>
+      )}
 
       {/* Modal รายละเอียดคำร้อง */}
       {selectedReport && (
-        <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
+        <div className="fixed inset-0 bg-slate-900/60 z-[60] flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
           <div className="bg-white rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl border border-slate-100 max-h-[90vh] flex flex-col animate-scale-in">
             <div className="p-5 text-white flex items-center justify-between shrink-0 bg-brand-gradient">
               <div className="flex items-center gap-2">
@@ -258,7 +337,7 @@ export default function UserHelp({ problemReports = [], onSubmitted, notify }) {
                 type="button"
                 onClick={() => setSelectedReport(null)}
                 aria-label="ปิดหน้าต่าง"
-                className="text-white/80 hover:text-white hover:bg-white/10 p-1.5 rounded-full transition-colors"
+                className="text-white/95 hover:text-white hover:bg-white/10 p-1.5 rounded-full transition-colors"
               >
                 <X size={18} />
               </button>
@@ -267,7 +346,7 @@ export default function UserHelp({ problemReports = [], onSubmitted, notify }) {
             <div className="p-6 flex flex-col gap-4 overflow-y-auto">
               <div className="flex items-start justify-between border-b border-slate-100 pb-3">
                 <div>
-                  <span className="text-[10px] text-muted font-semibold uppercase tracking-wider block mb-0.5">หัวข้อ</span>
+                  <span className="text-xs text-muted font-semibold uppercase tracking-wider block mb-0.5">หัวข้อ</span>
                   <h4 className="text-base font-bold text-ink">{selectedReport.category}</h4>
                 </div>
                 <Pill
@@ -285,15 +364,33 @@ export default function UserHelp({ problemReports = [], onSubmitted, notify }) {
               </div>
 
               <div>
-                <span className="text-[10px] text-muted font-semibold uppercase tracking-wider block mb-1">รายละเอียด</span>
+                <span className="text-xs text-muted font-semibold uppercase tracking-wider block mb-1">รายละเอียด</span>
                 <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 text-xs text-slate-700 leading-relaxed whitespace-pre-line">
                   {selectedReport.description}
                 </div>
               </div>
 
+              {selectedReport.staffNote && (
+                <div>
+                  <span className="text-xs text-muted font-semibold uppercase tracking-wider block mb-1">อัปเดตจากเจ้าหน้าที่</span>
+                  <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4 text-xs text-slate-700 leading-relaxed whitespace-pre-line">
+                    {selectedReport.staffNote}
+                  </div>
+                </div>
+              )}
+
+              {selectedReport.adminComment && (
+                <div>
+                  <span className="text-xs text-muted font-semibold uppercase tracking-wider block mb-1">ข้อความตอบกลับจากผู้ดูแลระบบ</span>
+                  <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4 text-xs text-slate-700 leading-relaxed whitespace-pre-line">
+                    {selectedReport.adminComment}
+                  </div>
+                </div>
+              )}
+
               {selectedReport.images && selectedReport.images.length > 0 && (
                 <div>
-                  <span className="text-[10px] text-muted font-semibold uppercase tracking-wider block mb-2">
+                  <span className="text-xs text-muted font-semibold uppercase tracking-wider block mb-2">
                     รูปภาพแนบ ({selectedReport.images.length} รูป)
                   </span>
                   <div className="grid grid-cols-3 gap-3">
@@ -370,7 +467,7 @@ export default function UserHelp({ problemReports = [], onSubmitted, notify }) {
                 </div>
                 <div>
                   <div className="font-semibold text-slate-800">ถ่ายรูป</div>
-                  <div className="text-[10px] text-muted">เปิดกล้องถ่ายภาพใหม่</div>
+                  <div className="text-xs text-muted">เปิดกล้องถ่ายภาพใหม่</div>
                 </div>
               </button>
 
@@ -384,7 +481,7 @@ export default function UserHelp({ problemReports = [], onSubmitted, notify }) {
                 </div>
                 <div>
                   <div className="font-semibold text-slate-800">เลือกจากคลังภาพ / ไฟล์</div>
-                  <div className="text-[10px] text-muted">เลือกภาพที่มีในอุปกรณ์</div>
+                  <div className="text-xs text-muted">เลือกภาพที่มีในอุปกรณ์</div>
                 </div>
               </button>
             </div>

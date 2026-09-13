@@ -5,13 +5,13 @@ export default {
     extend: {
       colors: {
         navy: {
-          950: "#0B173D",
-          900: "#1E45B8", // NAVY2 — deep gradient stop
-          800: "#2F5FD9", // NAVY — primary
-          700: "#4C74E8", // NAVY_LIGHT
-          600: "#7B9BF2", // NAVY_ACCENT
-          100: "#DCE6FF",
-          50: "#EEF2FF",  // NAVY_SOFT
+          950: "#06132E",
+          900: "#0B2457", // NAVY2 — deep gradient stop
+          800: "#123B82", // NAVY — primary
+          700: "#1C4FA3", // NAVY_LIGHT
+          600: "#5679C4", // NAVY_ACCENT
+          100: "#CEDAF0",
+          50: "#E8EEF8",  // NAVY_SOFT
         },
         gold: {
           400: "#FFC857",
@@ -24,21 +24,24 @@ export default {
           50: "#E6FBF8",
         },
         ink: "#101828",
-        muted: "#64748B",
+        muted: "#475569",
       },
       fontFamily: {
         sans: ['"Noto Sans Thai"', "-apple-system", "BlinkMacSystemFont", '"Segoe UI"', "Roboto", "sans-serif"],
       },
+      fontSize: {
+        xs: ["0.875rem", { lineHeight: "1.25rem" }],
+      },
       backgroundImage: {
-        "brand-gradient": "linear-gradient(135deg, #2F5FD9 0%, #1E45B8 100%)",
+        "brand-gradient": "linear-gradient(135deg, #123B82 0%, #0B2457 100%)",
         "gold-gradient": "linear-gradient(135deg, #FFC857 0%, #F59300 100%)",
       },
       boxShadow: {
         soft: "0 2px 15px -3px rgba(16, 24, 40, 0.05), 0 4px 6px -2px rgba(16, 24, 40, 0.03)",
         card: "0 1px 2px rgba(16, 24, 40, 0.04), 0 8px 24px -8px rgba(16, 24, 40, 0.10)",
         glow: "0 0 24px -4px rgba(255, 176, 32, 0.4)",
-        "blue-glow": "0 8px 24px -6px rgba(47, 95, 217, 0.35)",
-        "focus-ring": "0 0 0 4px rgba(47, 95, 217, 0.12)",
+        "blue-glow": "0 8px 24px -6px rgba(18, 59, 130, 0.35)",
+        "focus-ring": "0 0 0 4px rgba(18, 59, 130, 0.12)",
       },
       borderRadius: {
         "2xl": "1rem",

@@ -1,7 +1,7 @@
 export function isStaffAdmin(userType) {
-  return userType === "admin" || userType === "superadmin";
+  return userType === "admin" || isSuperAdmin(userType);
 }
 
 export function isSuperAdmin(userType) {
-  return userType === "superadmin";
+  return userType === "super_admin" || userType === "superadmin";
 }

@@ -17,10 +17,14 @@ export interface EntryOtpStatus {
   roomName?: string | null;
   deliveryMode?: 'webhook' | 'development';
   developmentCode?: string;
+  monthlyLimit?: number;
+  monthlyUsed?: number;
+  monthlyRemaining?: number;
 }
 
 @Injectable()
 export class EntryOtpService {
+  private static readonly MONTHLY_REQUEST_LIMIT = 5;
   private readonly verifyAttempts = new Map<number, number[]>();
 
   constructor(
@@ -39,6 +43,14 @@ export class EntryOtpService {
     const user = users[0];
     if (!user) {
       throw new ServiceUnavailableException('ไม่พบบัญชีผู้ใช้ที่เปิดใช้งาน');
+    }
+
+    const monthlyUsed = await this.countMonthlyRequests(userId);
+    if (monthlyUsed >= EntryOtpService.MONTHLY_REQUEST_LIMIT) {
+      throw new HttpException(
+        'ใช้สิทธิ์ขอ OTP สำรองครบ 5 ครั้งของเดือนนี้แล้ว',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
     }
 
     const counts = this.readRows(
@@ -86,6 +98,12 @@ export class EntryOtpService {
       expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
       maskedEmail: this.maskEmail(String(user.email)),
       deliveryMode,
+      monthlyLimit: EntryOtpService.MONTHLY_REQUEST_LIMIT,
+      monthlyUsed: monthlyUsed + 1,
+      monthlyRemaining: Math.max(
+        0,
+        EntryOtpService.MONTHLY_REQUEST_LIMIT - monthlyUsed - 1,
+      ),
     };
     if ((this.config.get('NODE_ENV') ?? 'development') !== 'production') {
       status.developmentCode = code;
@@ -93,9 +111,9 @@ export class EntryOtpService {
     return status;
   }
 
-  active(userId: number): Promise<EntryOtpStatus> {
-    return this.dataSource
-      .query(
+  async active(userId: number): Promise<EntryOtpStatus> {
+    const [result, monthlyUsed] = await Promise.all([
+      this.dataSource.query(
         `SELECT eoc.room_id, eoc.expires_at, u.email, r.room_name
          FROM entry_otp_codes AS eoc
          INNER JOIN users AS u ON u.id = eoc.user_id
@@ -104,20 +122,28 @@ export class EntryOtpService {
            AND eoc.expires_at > UTC_TIMESTAMP()
          ORDER BY eoc.created_at DESC LIMIT 1`,
         [userId],
-      )
-      .then((result: unknown) => {
-        const row = this.readRows(result)[0];
-        return row
-          ? {
-              active: true,
-              roomId: row.room_id === null ? null : Number(row.room_id),
-              expiresAt: String(row.expires_at),
-              maskedEmail: this.maskEmail(String(row.email)),
-              roomName:
-                typeof row.room_name === 'string' ? row.room_name : null,
-            }
-          : { active: false, roomId: null, expiresAt: null };
-      });
+      ),
+      this.countMonthlyRequests(userId),
+    ]);
+    const quota = {
+      monthlyLimit: EntryOtpService.MONTHLY_REQUEST_LIMIT,
+      monthlyUsed,
+      monthlyRemaining: Math.max(
+        0,
+        EntryOtpService.MONTHLY_REQUEST_LIMIT - monthlyUsed,
+      ),
+    };
+    const row = this.readRows(result)[0];
+    return row
+      ? {
+          active: true,
+          roomId: row.room_id === null ? null : Number(row.room_id),
+          expiresAt: String(row.expires_at),
+          maskedEmail: this.maskEmail(String(row.email)),
+          roomName: typeof row.room_name === 'string' ? row.room_name : null,
+          ...quota,
+        }
+      : { active: false, roomId: null, expiresAt: null, ...quota };
   }
 
   async verify(roomId: number, code: string) {
@@ -248,6 +274,22 @@ export class EntryOtpService {
     throw new ServiceUnavailableException(
       'ไม่สามารถสร้าง OTP ได้ กรุณาลองใหม่',
     );
+  }
+
+  private async countMonthlyRequests(userId: number): Promise<number> {
+    const rows = this.readRows(
+      (await this.dataSource.query(
+        `SELECT COUNT(*) AS request_count FROM entry_otp_codes
+         WHERE user_id = ?
+           AND created_at >= CONVERT_TZ(
+             DATE_FORMAT(CONVERT_TZ(UTC_TIMESTAMP(), '+00:00', '+07:00'), '%Y-%m-01 00:00:00'),
+             '+07:00',
+             '+00:00'
+           )`,
+        [userId],
+      )) as unknown,
+    );
+    return Number(rows[0]?.request_count ?? 0);
   }
 
   private checkVerifyRateLimit(roomId: number): void {

@@ -29,7 +29,7 @@ export default function UserHome({ setPage, myBookings = [], auth }) {
             <h2 className="font-bold text-lg md:text-2xl mb-1.5 tracking-tight text-white">
               {displayName}!
             </h2>
-            <p className="text-xs md:text-sm text-white/80 font-light leading-relaxed">
+            <p className="text-xs md:text-sm text-white/95 font-light leading-relaxed">
               ตรวจสอบสถานะห้องแล็บ จัดการกลุ่มเพื่อน หรือเริ่มต้นจองพื้นที่เพื่อการเรียนรู้และการทำโครงงานได้ตลอด 24 ชั่วโมง
             </p>
           </div>

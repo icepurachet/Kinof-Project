@@ -22,7 +22,7 @@ export default function TopBar({ name = "ผู้ใช้งาน", onMenuCli
         <div />
       )}
 
-      <div className="flex items-center gap-2.5 bg-white border border-slate-200/80 rounded-full pl-1.5 pr-4 py-1 shadow-sm hover:border-slate-300 hover:shadow-soft transition-all">
+      <div className="pointer-events-none select-none flex items-center gap-2.5 bg-white border border-slate-200/80 rounded-full pl-1.5 pr-4 py-1 shadow-sm">
         <div
           className="w-7 h-7 rounded-full flex items-center justify-center text-navy-900 text-xs font-bold shadow-sm"
           style={{ background: GRADIENT_GOLD }}

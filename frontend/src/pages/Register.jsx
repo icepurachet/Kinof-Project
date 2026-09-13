@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { ArrowLeft, UserPlus } from "lucide-react";
 import { Link } from "react-router-dom";
 import Card from "../components/Card";
+import PasswordInput from "../components/PasswordInput";
 import { register } from "../api/auth";
 import { GOLD, NAVY } from "../theme";
 
@@ -125,11 +126,11 @@ export default function Register({ onAuthenticated }) {
           <div className="hidden sm:block" />
           <label className="text-xs text-gray-600">
             รหัสผ่าน
-            <input value={form.password} onChange={update("password")} type="password" minLength={8} required autoComplete="new-password" className={`${inputClass} mt-1`} />
+            <PasswordInput value={form.password} onChange={update("password")} minLength={8} required autoComplete="new-password" className={`${inputClass} mt-1 pr-10`} />
           </label>
           <label className="text-xs text-gray-600">
             ยืนยันรหัสผ่าน
-            <input value={form.confirmPassword} onChange={update("confirmPassword")} type="password" minLength={8} required autoComplete="new-password" className={`${inputClass} mt-1`} />
+            <PasswordInput value={form.confirmPassword} onChange={update("confirmPassword")} minLength={8} required autoComplete="new-password" className={`${inputClass} mt-1 pr-10`} />
           </label>
 
           {error && <p className="sm:col-span-2 text-xs text-red-600" role="alert">{error}</p>}

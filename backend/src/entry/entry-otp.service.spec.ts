@@ -24,6 +24,7 @@ describe('EntryOtpService', () => {
         .fn()
         .mockResolvedValueOnce([{ id: 7, email: 'student@example.com' }])
         .mockResolvedValueOnce([{ request_count: 0 }])
+        .mockResolvedValueOnce([{ request_count: 0 }])
         .mockResolvedValueOnce([{ active_count: 0 }])
         .mockResolvedValueOnce({ affectedRows: 1 })
         .mockResolvedValueOnce({ insertId: 9 }),
@@ -38,10 +39,27 @@ describe('EntryOtpService', () => {
     expect(result).toMatchObject({ active: true, roomId: 2 });
     expect(result.developmentCode).toMatch(/^\d{6}$/);
     expect(dataSource.query).toHaveBeenNthCalledWith(
-      5,
+      6,
       expect.any(String),
       expect.arrayContaining([7, 2, expect.not.stringMatching(/^\d{6}$/)]),
     );
+  });
+
+  it('ไม่อนุญาตให้ขอ OTP เกิน 5 ครั้งต่อเดือนตามเวลาไทย', async () => {
+    const dataSource = {
+      query: jest
+        .fn()
+        .mockResolvedValueOnce([{ id: 7, email: 'student@example.com' }])
+        .mockResolvedValueOnce([{ request_count: 5 }]),
+    };
+    const service = new EntryOtpService(
+      dataSource as unknown as DataSource,
+      config as unknown as ConfigService,
+      {} as EntryService,
+    );
+
+    await expect(service.request(7, 2)).rejects.toMatchObject({ status: 429 });
+    expect(dataSource.query).toHaveBeenCalledTimes(2);
   });
 
   it('OTP ใช้ได้ครั้งเดียวและยังต้องผ่านสิทธิ์เข้าห้อง', async () => {

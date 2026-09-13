@@ -50,13 +50,13 @@ export default function Sidebar({
               </div>
               <div>
                 <div className="font-bold tracking-wider text-base leading-tight">KINOF</div>
-                <div className="text-[11px] text-white/60 font-light tracking-wide">{roleLabel || "ระบบจองห้องแล็บ"}</div>
+                <div className="text-xs text-white/90 font-light tracking-wide">{roleLabel || "ระบบจองห้องแล็บ"}</div>
               </div>
             </div>
 
             <button
               onClick={onClose}
-              className="lg:hidden text-white/70 hover:text-white hover:bg-white/10 p-1.5 rounded-full transition-colors"
+              className="lg:hidden text-white/95 hover:text-white hover:bg-white/10 p-1.5 rounded-full transition-colors"
               aria-label="ปิดเมนู"
             >
               <X size={18} />
@@ -74,7 +74,7 @@ export default function Sidebar({
                   className={`flex items-center gap-3 px-3.5 py-3 rounded-xl text-xs md:text-sm font-medium transition-all duration-200 relative group ${
                     isActive
                       ? "text-white bg-white/15 shadow-sm shadow-black/10"
-                      : "text-white/65 hover:text-white hover:bg-white/10"
+                      : "text-white/90 hover:text-white hover:bg-white/10"
                   }`}
                 >
                   {isActive && (
@@ -85,7 +85,7 @@ export default function Sidebar({
                   )}
                   <it.icon
                     size={19}
-                    className={`transition-colors ${isActive ? "text-gold-400" : "text-white/60 group-hover:text-white/90"}`}
+                    className={`transition-colors ${isActive ? "text-gold-400" : "text-white/90 group-hover:text-white/90"}`}
                   />
                   <span className="truncate">{it.label}</span>
                 </button>
@@ -96,7 +96,7 @@ export default function Sidebar({
 
         <button
           onClick={onLogout}
-          className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs md:text-sm font-medium text-white/60 hover:text-rose-200 hover:bg-rose-500/15 transition-all duration-200 mt-6"
+          className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs md:text-sm font-medium text-white/90 hover:text-rose-200 hover:bg-rose-500/15 transition-all duration-200 mt-6"
         >
           <LogOut size={18} />
           <span>ออกจากระบบ</span>

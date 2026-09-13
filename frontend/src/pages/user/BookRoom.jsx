@@ -16,8 +16,33 @@ import {
 import Card from "../../components/Card";
 import Pill from "../../components/Pill";
 import Button from "../../components/Button";
-import { BOOKING_SLOTS, createBooking, getAvailableRooms, parseStoredDate, searchUsers, slotToRange } from "../../api/bookings";
+import {
+  BOOKING_SLOTS,
+  cancelPendingBooking,
+  confirmBooking,
+  createBooking,
+  getAvailableRooms,
+  getBookingGroupStatus,
+  parseStoredDate,
+  searchUsers,
+  slotToRange,
+} from "../../api/bookings";
 import { findSlotClassConflict, getMySchedule } from "../../api/schedules";
+
+const BOOK_ROOM_DRAFT_KEY = "kinofBookRoomDraft";
+
+function readBookRoomDraft() {
+  try {
+    const raw = sessionStorage.getItem(BOOK_ROOM_DRAFT_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function slotById(slotId) {
+  return BOOKING_SLOTS.find((item) => item.id === slotId) ?? null;
+}
 
 const THAI_MONTHS = [
   "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
@@ -32,25 +57,29 @@ const morningSlots = BOOKING_SLOTS.slice(0, 2);
 const afternoonSlots = BOOKING_SLOTS.slice(2);
 
 export default function BookRoom({ onBookingCreated, notify, existingBookings = [], setPage, auth }) {
-  const [step, setStep] = useState(1);
-  const [isSubmitted, setIsSubmitted] = useState(false);
-  const [selectedDate, setSelectedDate] = useState(new Date());
-  const [viewDate, setViewDate] = useState(new Date());
-  const [slot, setSlot] = useState(null);
+  const draft = readBookRoomDraft();
+  const [step, setStep] = useState(draft?.step ?? 1);
+  const [isSubmitted, setIsSubmitted] = useState(draft?.isSubmitted ?? false);
+  const [selectedDate, setSelectedDate] = useState(() => (draft?.selectedDate ? new Date(draft.selectedDate) : new Date()));
+  const [viewDate, setViewDate] = useState(() => (draft?.viewDate ? new Date(draft.viewDate) : new Date()));
+  const [slot, setSlot] = useState(() => slotById(draft?.slotId));
 
-  const [friends, setFriends] = useState([]);
+  const [friends, setFriends] = useState(draft?.friends ?? []);
   const [friendSearchInput, setFriendSearchInput] = useState("");
   const [searchResults, setSearchResults] = useState([]);
   const [isSearchingUsers, setIsSearchingUsers] = useState(false);
   const [emailError, setEmailError] = useState(false);
 
-  const [hasSearchedRooms, setHasSearchedRooms] = useState(false);
+  const [hasSearchedRooms, setHasSearchedRooms] = useState(draft?.hasSearchedRooms ?? false);
   const [isSearchingRooms, setIsSearchingRooms] = useState(false);
-  const [availableRooms, setAvailableRooms] = useState([]);
-  const [selectedRoom, setSelectedRoom] = useState(null);
+  const [availableRooms, setAvailableRooms] = useState(draft?.availableRooms ?? []);
+  const [selectedRoom, setSelectedRoom] = useState(draft?.selectedRoom ?? null);
   const [requestError, setRequestError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [mySchedule, setMySchedule] = useState([]);
+  const [pendingBookingId, setPendingBookingId] = useState(draft?.pendingBookingId ?? null);
+  const [groupStatus, setGroupStatus] = useState(null);
+  const [invitesSent, setInvitesSent] = useState(Boolean(draft?.pendingBookingId));
 
   const [bookingsList, setBookingsList] = useState([...existingBookings]);
 
@@ -64,7 +93,103 @@ export default function BookRoom({ onBookingCreated, notify, existingBookings = 
       .catch(() => setMySchedule([]));
   }, []);
 
+  useEffect(() => {
+    if (isSubmitted) {
+      sessionStorage.removeItem(BOOK_ROOM_DRAFT_KEY);
+      return;
+    }
+    sessionStorage.setItem(
+      BOOK_ROOM_DRAFT_KEY,
+      JSON.stringify({
+        step,
+        isSubmitted,
+        selectedDate: selectedDate.toISOString(),
+        viewDate: viewDate.toISOString(),
+        slotId: slot?.id ?? null,
+        friends,
+        hasSearchedRooms,
+        availableRooms,
+        selectedRoom,
+        pendingBookingId,
+      }),
+    );
+  }, [
+    step,
+    isSubmitted,
+    selectedDate,
+    viewDate,
+    slot,
+    friends,
+    hasSearchedRooms,
+    availableRooms,
+    selectedRoom,
+    pendingBookingId,
+  ]);
+
+  useEffect(() => {
+    if (step !== 3 || friends.length === 0 || pendingBookingId || isSubmitted || !selectedRoom || !slot) return undefined;
+    let cancelled = false;
+
+    (async () => {
+      setIsSubmitting(true);
+      setRequestError("");
+      try {
+        const { start, end } = slotToRange(selectedDate, slot);
+        const booking = await createBooking({
+          roomId: selectedRoom.id,
+          startTime: start,
+          endTime: end,
+          inviteeUserIds: friends.map((friend) => friend.id),
+        });
+        if (cancelled) return;
+        setPendingBookingId(booking.id);
+        setInvitesSent(true);
+        notify?.(`ส่งคำเชิญ ${booking.invitationsCreated ?? friends.length} คนแล้ว — รอให้ตอบรับก่อนยืนยันการจอง`);
+      } catch (error) {
+        if (!cancelled) {
+          setRequestError(error.message);
+          notify?.(error.message);
+          setStep(2);
+        }
+      } finally {
+        if (!cancelled) setIsSubmitting(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [step, friends, pendingBookingId, isSubmitted, selectedRoom, slot, selectedDate, notify]);
+
+  useEffect(() => {
+    if (!pendingBookingId) return undefined;
+
+    const refreshGroupStatus = async () => {
+      try {
+        const status = await getBookingGroupStatus(pendingBookingId);
+        setGroupStatus(status);
+        setFriends((current) =>
+          current.map((friend) => {
+            const member = status.members?.find((item) => item.id === friend.id);
+            if (!member) return friend;
+            const nextStatus =
+              member.status === "accepted" ? "joined" : member.status === "declined" ? "declined" : "pending";
+            return { ...friend, status: nextStatus };
+          }),
+        );
+      } catch (error) {
+        setRequestError(error.message);
+      }
+    };
+
+    refreshGroupStatus();
+    const timer = setInterval(refreshGroupStatus, 3000);
+    return () => clearInterval(timer);
+  }, [pendingBookingId]);
+
   const userEmail = auth?.user?.email ?? "—";
+  const hasFriends = friends.length > 0;
+  const canConfirmBooking = !hasFriends || Boolean(groupStatus?.canConfirm && !groupStatus?.hasDeclined);
   const steps = ["1. เลือกวัน-เวลา", "2. จัดการสมาชิก-ดูห้อง", "3. ยืนยันการจอง"];
   const formattedDate = `${selectedDate.getDate()} ${THAI_MONTHS[selectedDate.getMonth()]} ${selectedDate.getFullYear() + 543}`;
 
@@ -201,30 +326,30 @@ export default function BookRoom({ onBookingCreated, notify, existingBookings = 
 
   const handleConfirmBooking = async () => {
     if (!selectedRoom || !slot) return;
+    if (hasFriends && !canConfirmBooking) return;
+
     setIsSubmitting(true);
     setRequestError("");
     try {
-      const { start, end } = slotToRange(selectedDate, slot);
-      const booking = await createBooking({
-        roomId: selectedRoom.id,
-        startTime: start,
-        endTime: end,
-        inviteeUserIds: friends.map((friend) => friend.id),
-      });
+      let booking;
+      if (hasFriends) {
+        booking = await confirmBooking(pendingBookingId, selectedRoom.id);
+      } else {
+        const { start, end } = slotToRange(selectedDate, slot);
+        booking = await createBooking({
+          roomId: selectedRoom.id,
+          startTime: start,
+          endTime: end,
+          inviteeUserIds: [],
+        });
+      }
+
       setBookingsList((prev) => [...prev, booking]);
       onBookingCreated?.(booking);
-      if ((booking.invitationsCreated ?? 0) > 0) {
-        const skipped = booking.invitationsSkipped ?? 0;
-        notify?.(
-          skipped > 0
-            ? `สร้างรายการรอสำเร็จ ส่งคำเชิญ ${booking.invitationsCreated} คน (ข้าม ${skipped} คนที่ไม่พบในระบบ)`
-            : `ส่งคำเชิญ ${booking.invitationsCreated} คนแล้ว ห้องจะยืนยันเมื่อทุกคนตอบรับภายใน 5 นาที`,
-        );
-      } else if ((booking.invitationsRequested ?? 0) > 0) {
-        notify?.("จองสำเร็จ แต่ไม่พบผู้ใช้ที่เชิญในระบบ — ไม่ได้ส่งคำเชิญ");
-      } else {
-        notify?.("ยืนยันการจองเรียบร้อยแล้ว");
-      }
+      notify?.("ยืนยันการจองเรียบร้อยแล้ว");
+      setPendingBookingId(null);
+      setGroupStatus(null);
+      setInvitesSent(false);
       setIsSubmitted(true);
     } catch (error) {
       setRequestError(error.message);
@@ -234,12 +359,32 @@ export default function BookRoom({ onBookingCreated, notify, existingBookings = 
     }
   };
 
-  const handleReset = () => {
+  const cancelPendingIfNeeded = async () => {
+    if (!pendingBookingId) return;
+    try {
+      await cancelPendingBooking(pendingBookingId);
+    } catch {
+      // Ignore stale pending bookings when navigating away.
+    }
+    setPendingBookingId(null);
+    setGroupStatus(null);
+    setInvitesSent(false);
+  };
+
+  const handleBackFromStep3 = async () => {
+    await cancelPendingIfNeeded();
+    setStep(2);
+  };
+
+  const handleReset = async () => {
+    await cancelPendingIfNeeded();
+    sessionStorage.removeItem(BOOK_ROOM_DRAFT_KEY);
     setIsSubmitted(false);
     setStep(1);
     setSlot(null);
     setSelectedRoom(null);
     setHasSearchedRooms(false);
+    setAvailableRooms([]);
     setFriends([]);
     setFriendSearchInput("");
     setSearchResults([]);
@@ -281,11 +426,11 @@ export default function BookRoom({ onBookingCreated, notify, existingBookings = 
       >
         <span className="font-medium">{slotOption.label}</span>
         {classConflict ? (
-          <span className="text-[10px] bg-rose-100 text-rose-700 font-medium px-2.5 py-0.5 rounded-full" title={classConflict.course}>
+          <span className="text-xs bg-rose-100 text-rose-700 font-medium px-2.5 py-0.5 rounded-full" title={classConflict.course}>
             ติดเรียน
           </span>
         ) : booked ? (
-          <span className="text-[10px] bg-slate-200 text-slate-600 font-medium px-2.5 py-0.5 rounded-full">
+          <span className="text-xs bg-slate-200 text-slate-600 font-medium px-2.5 py-0.5 rounded-full">
             จองแล้ว
           </span>
         ) : null}
@@ -325,7 +470,7 @@ export default function BookRoom({ onBookingCreated, notify, existingBookings = 
                   >
                     {isStepCompleted || isPast ? <Check size={16} strokeWidth={3} /> : `${stepNum}`}
                   </div>
-                  <span className={`text-[11px] font-medium whitespace-nowrap ${isActive ? "text-white font-semibold" : "text-slate-300"}`}>
+                  <span className={`text-xs font-medium whitespace-nowrap ${isActive ? "text-white font-semibold" : "text-slate-300"}`}>
                     {s}
                   </span>
                 </div>
@@ -454,6 +599,8 @@ export default function BookRoom({ onBookingCreated, notify, existingBookings = 
                 <div className="flex items-center gap-2">
                   {f.status === "joined" ? (
                     <Pill tone="green" withDot>เข้าร่วมแล้ว</Pill>
+                  ) : f.status === "declined" ? (
+                    <Pill tone="red" withDot>ปฏิเสธแล้ว</Pill>
                   ) : (
                     <Pill tone="amber" withDot>ยังไม่เข้าร่วม</Pill>
                   )}
@@ -515,7 +662,7 @@ export default function BookRoom({ onBookingCreated, notify, existingBookings = 
             </div>
           </Card>
 
-          <p className="text-xs text-muted italic">คุณมีเวลา 5 นาทีเพื่อรอให้สมาชิกเข้าร่วมกลุ่มครบทุกคน</p>
+          <p className="text-xs text-muted italic">เมื่อไปหน้ายืนยันการจอง ระบบจะส่งคำเชิญให้สมาชิก และต้องรอให้ทุกคนตอบรับก่อนยืนยันได้</p>
 
           <div className="flex justify-center pt-2">
             <Button
@@ -598,7 +745,7 @@ export default function BookRoom({ onBookingCreated, notify, existingBookings = 
                         <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
                           <div
                             className="h-full rounded-full transition-all duration-300 bg-teal-500"
-              style={{ width: `${Math.max(0, Math.min(100, (r.availableSeats / r.capacity) * 100))}%` }}
+                            style={{ width: "100%" }}
                           />
                         </div>
                       </div>
@@ -608,8 +755,8 @@ export default function BookRoom({ onBookingCreated, notify, existingBookings = 
                           <Users size={13} />
                           <span>ความจุ {r.capacity} ที่นั่ง</span>
                         </div>
-                        <span className="font-medium px-2.5 py-0.5 rounded-full text-[11px] border text-emerald-700 bg-emerald-50 border-emerald-200/60">
-                          เหลือ {r.availableSeats} ที่นั่ง
+                        <span className="font-medium px-2.5 py-0.5 rounded-full text-xs border text-emerald-700 bg-emerald-50 border-emerald-200/60">
+                          พร้อมจอง
                         </span>
                       </div>
                     </button>
@@ -640,6 +787,24 @@ export default function BookRoom({ onBookingCreated, notify, existingBookings = 
             <h2 className="text-base font-bold text-ink tracking-tight">ยืนยันรายละเอียดการจอง</h2>
             <p className="text-caption">กรุณาตรวจสอบความถูกต้องของข้อมูลก่อนกดยืนยัน</p>
           </div>
+
+          {hasFriends && invitesSent && (
+            <div className={`rounded-2xl border px-4 py-3 text-xs ${
+              groupStatus?.isExpired || groupStatus?.hasDeclined
+                ? "border-rose-200 bg-rose-50 text-rose-800"
+                : canConfirmBooking
+                ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                : "border-amber-200 bg-amber-50 text-amber-900"
+            }`}>
+              {groupStatus?.isExpired
+                ? "รายการจองหมดเวลา 5 นาทีแล้ว กรุณาย้อนกลับเพื่อสร้างคำเชิญใหม่"
+                : groupStatus?.hasDeclined
+                ? "มีสมาชิกปฏิเสธคำเชิญ กรุณาย้อนกลับเพื่อแก้ไขกลุ่มหรือยกเลิกการจอง"
+                : canConfirmBooking
+                ? "สมาชิกตอบรับครบแล้ว กดยืนยันการจองได้"
+                : "ส่งคำเชิญแล้ว กำลังรอให้สมาชิกทุกคนเปิดเมนู \"คำเชิญ\" และกดยอมรับ"}
+            </div>
+          )}
 
           <div className="border border-slate-200/80 rounded-3xl overflow-hidden bg-white shadow-soft">
             <div className="p-5 md:p-6 text-white bg-brand-gradient">
@@ -673,8 +838,8 @@ export default function BookRoom({ onBookingCreated, notify, existingBookings = 
                     friends.map((f) => (
                       <div key={f.email} className="font-medium text-slate-800 flex items-center gap-2">
                         <span>• {f.email}</span>
-                        <Pill tone={f.status === "joined" ? "green" : "amber"}>
-                          {f.status === "joined" ? "เข้าร่วมแล้ว" : "ยังไม่เข้าร่วม"}
+                        <Pill tone={f.status === "joined" ? "green" : f.status === "declined" ? "red" : "amber"}>
+                          {f.status === "joined" ? "เข้าร่วมแล้ว" : f.status === "declined" ? "ปฏิเสธแล้ว" : "ยังไม่เข้าร่วม"}
                         </Pill>
                       </div>
                     ))
@@ -686,12 +851,27 @@ export default function BookRoom({ onBookingCreated, notify, existingBookings = 
             </div>
           </div>
 
+          {requestError && (
+            <div className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-4 py-3" role="alert">
+              {requestError}
+            </div>
+          )}
+
           <div className="flex justify-between items-center pt-2">
-            <Button variant="secondary" onClick={() => setStep(2)}>
+            <Button variant="secondary" onClick={handleBackFromStep3}>
               ย้อนกลับและแก้ไข
             </Button>
-            <Button variant="primary" icon={Check} disabled={isSubmitting} onClick={handleConfirmBooking}>
-              {isSubmitting ? "กำลังยืนยัน..." : "ยืนยันการจอง"}
+            <Button
+              variant="primary"
+              icon={Check}
+              disabled={isSubmitting || (hasFriends && (!invitesSent || !canConfirmBooking))}
+              onClick={handleConfirmBooking}
+            >
+              {isSubmitting
+                ? "กำลังยืนยัน..."
+                : hasFriends && !canConfirmBooking
+                ? "รอสมาชิกตอบรับ..."
+                : "ยืนยันการจอง"}
             </Button>
           </div>
         </div>

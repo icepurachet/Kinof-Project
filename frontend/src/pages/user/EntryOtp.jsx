@@ -30,10 +30,18 @@ export default function EntryOtp({ myBookings = [], notify }) {
   const [requesting, setRequesting] = useState(false);
   const [resending, setResending] = useState(false);
   const [error, setError] = useState("");
+  const [quota, setQuota] = useState(null);
 
   const latestBookingRoomId = myBookings[0]?.roomId ?? "";
 
   const applyActive = useCallback((data) => {
+    if (Number.isFinite(Number(data?.monthlyLimit))) {
+      setQuota({
+        limit: Number(data.monthlyLimit),
+        used: Number(data.monthlyUsed ?? 0),
+        remaining: Number(data.monthlyRemaining ?? 0),
+      });
+    }
     if (!data?.hasActive) {
       setActive(null);
       return;
@@ -93,6 +101,7 @@ export default function EntryOtp({ myBookings = [], notify }) {
     [active?.expiresAt, nowTick],
   );
   const hasActive = Boolean(active?.expiresAt) && countdownMs > 0;
+  const quotaExhausted = quota?.remaining === 0;
 
   useEffect(() => {
     if (active?.expiresAt && countdownMs <= 0) {
@@ -160,6 +169,13 @@ export default function EntryOtp({ myBookings = [], notify }) {
           <p className="text-sm text-muted">กำลังโหลดข้อมูลห้องและรหัสที่ยังใช้ได้...</p>
         ) : (
           <>
+            {quota && (
+              <div className={`rounded-xl border px-4 py-3 text-xs ${quotaExhausted ? "border-rose-200 bg-rose-50 text-rose-700" : "border-slate-200 bg-slate-50 text-slate-600"}`}>
+                เดือนนี้ใช้ OTP สำรองแล้ว <strong>{quota.used} / {quota.limit}</strong> ครั้ง
+                {quotaExhausted ? " — ใช้สิทธิ์ครบแล้ว" : ` — เหลือ ${quota.remaining} ครั้ง`}
+              </div>
+            )}
+
             <label className="block">
               <span className="text-xs font-semibold text-muted uppercase tracking-wider">เลือกห้องแล็บ</span>
               <select
@@ -205,7 +221,7 @@ export default function EntryOtp({ myBookings = [], notify }) {
                     size="sm"
                     icon={RefreshCw}
                     iconPosition="left"
-                    disabled={resending}
+                    disabled={resending || quotaExhausted}
                     onClick={handleResend}
                   >
                     {resending ? "กำลังส่งใหม่..." : "ส่งใหม่"}
@@ -215,7 +231,7 @@ export default function EntryOtp({ myBookings = [], notify }) {
                 <Button
                   variant="ghost"
                   size="sm"
-                  disabled={requesting}
+                  disabled={requesting || quotaExhausted}
                   onClick={handleRequest}
                 >
                   {requesting ? "กำลังขอรหัสใหม่..." : "ขอรหัสใหม่สำหรับห้องที่เลือก"}
@@ -226,7 +242,7 @@ export default function EntryOtp({ myBookings = [], notify }) {
                 variant="primary"
                 icon={KeyRound}
                 iconPosition="left"
-                disabled={requesting}
+                disabled={requesting || quotaExhausted}
                 onClick={handleRequest}
               >
                 {requesting ? "กำลังขอรหัส..." : "ขอรหัสเข้าห้อง"}

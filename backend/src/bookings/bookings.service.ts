@@ -196,6 +196,7 @@ export class BookingsService {
     userId: number,
     bookingId: number,
   ): Promise<UserBookingSummary & { members: Array<Record<string, unknown>> }> {
+    await this.expirePendingBookings();
     const bookings = (await this.dataSource.query(
       `
         SELECT DISTINCT

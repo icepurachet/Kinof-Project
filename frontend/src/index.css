@@ -30,7 +30,7 @@
   /* Reusable text utility for secondary/caption copy — keeps muted text consistent
      instead of ad-hoc slate-400 / text-[10px] scattered across pages */
   .text-caption {
-    @apply text-[11px] text-muted font-light;
+    @apply text-xs text-muted font-normal;
   }
 
   /* Consistent interactive card lift, opt-in via className="card-interactive" */

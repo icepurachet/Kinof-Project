@@ -11,6 +11,7 @@ function formatDate(value) {
 export default function Invitation({ notify, onInvitationAccepted }) {
   const [invitations, setInvitations] = useState([]);
   const [selected, setSelected] = useState(null);
+  const [declineTarget, setDeclineTarget] = useState(null);
   const [loading, setLoading] = useState(true);
   const [requestError, setRequestError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -41,13 +42,18 @@ export default function Invitation({ notify, onInvitationAccepted }) {
     }
   };
 
-  const handleDecline = async (invitation) => {
+  const handleDecline = async () => {
+    if (!declineTarget) return;
+    setSubmitting(true);
     try {
-      await declineInvitation(invitation.id);
-      setInvitations((current) => current.filter((item) => item.id !== invitation.id));
+      await declineInvitation(declineTarget.id);
+      setInvitations((current) => current.filter((item) => item.id !== declineTarget.id));
+      setDeclineTarget(null);
       notify?.("ปฏิเสธคำเชิญเรียบร้อยแล้ว");
     } catch (error) {
       notify?.(error.message);
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -77,7 +83,7 @@ export default function Invitation({ notify, onInvitationAccepted }) {
                 <div className="text-xs text-amber-700 mt-1">สถานะ: {item.status === "pending" ? "รอดำเนินการ" : item.status}</div>
               </div>
               <div className="flex gap-2">
-                <Button variant="danger" size="sm" icon={X} onClick={() => handleDecline(item)}>ปฏิเสธ</Button>
+                <Button variant="danger" size="sm" icon={X} onClick={() => setDeclineTarget(item)}>ปฏิเสธ</Button>
                 <Button variant="success" size="sm" icon={Check} onClick={() => setSelected(item)}>ยอมรับ</Button>
               </div>
             </div>
@@ -94,6 +100,20 @@ export default function Invitation({ notify, onInvitationAccepted }) {
             <div className="flex justify-end gap-2 mt-5">
               <Button variant="secondary" onClick={() => setSelected(null)}>ยกเลิก</Button>
               <Button variant="success" icon={Check} onClick={handleAccept} disabled={submitting}>{submitting ? "กำลังยืนยัน..." : "ยืนยันการเข้าร่วม"}</Button>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {declineTarget && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" role="dialog" aria-modal="true">
+          <Card className="w-full max-w-md p-6">
+            <h2 className="text-lg font-semibold text-ink">ยืนยันการปฏิเสธคำเชิญ</h2>
+            <p className="text-sm text-slate-600 mt-2">คุณต้องการปฏิเสธคำเชิญจาก {declineTarget.inviter} สำหรับ {declineTarget.room} ในวันที่ {formatDate(declineTarget.startTime)} เวลา {formatSlotLabel(declineTarget.startTime, declineTarget.endTime)} ใช่หรือไม่</p>
+            <p className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg p-3 mt-4">ผู้จองจะไม่สามารถยืนยันการจองได้จนกว่าสมาชิกทุกคนจะตอบรับ</p>
+            <div className="flex justify-end gap-2 mt-5">
+              <Button variant="secondary" onClick={() => setDeclineTarget(null)}>ยกเลิก</Button>
+              <Button variant="danger" icon={X} onClick={handleDecline} disabled={submitting}>{submitting ? "กำลังปฏิเสธ..." : "ยืนยันการปฏิเสธ"}</Button>
             </div>
           </Card>
         </div>

@@ -41,9 +41,9 @@ const DATE_FORMAT = new Intl.DateTimeFormat("th-TH", {
 });
 
 const ROOM_STATUS = {
-  open: { label: "เปิดให้บริการ", tone: "text-emerald-300 bg-emerald-500/15 border-emerald-400/30" },
-  closed: { label: "ปิดให้บริการ", tone: "text-rose-300 bg-rose-500/15 border-rose-400/30" },
-  maintenance: { label: "ปิดปรับปรุง", tone: "text-amber-300 bg-amber-500/15 border-amber-400/30" },
+  open: { label: "เปิดให้บริการ", tone: "text-emerald-700 bg-emerald-50 border-emerald-200" },
+  closed: { label: "ปิดให้บริการ", tone: "text-rose-700 bg-rose-50 border-rose-200" },
+  maintenance: { label: "ปิดปรับปรุง", tone: "text-amber-700 bg-amber-50 border-amber-200" },
 };
 
 const KEYPAD = ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
@@ -61,6 +61,7 @@ export default function KioskEntry() {
   const [faceNotice, setFaceNotice] = useState("");
   const [otpNotice, setOtpNotice] = useState("");
   const [faceFailCount, setFaceFailCount] = useState(0);
+  const [otpAllowed, setOtpAllowed] = useState(false);
   const [resetIn, setResetIn] = useState(0);
   const [now, setNow] = useState(() => new Date());
   const submittingRef = useRef(false);
@@ -106,6 +107,7 @@ export default function KioskEntry() {
     setFaceNotice("");
     setOtpNotice("");
     setFaceFailCount(0);
+    setOtpAllowed(false);
     setResetIn(0);
   }, []);
 
@@ -115,6 +117,7 @@ export default function KioskEntry() {
     setOtpNotice(notice);
     setDeniedMessage("");
     setResetIn(0);
+    setOtpAllowed(true);
     setStep("otp");
   }, []);
 
@@ -176,15 +179,22 @@ export default function KioskEntry() {
         return;
       }
 
+      // Face Service down / rate-limited: OTP is the emergency fallback right away.
+      if (result.serviceError) {
+        setOtpAllowed(true);
+        setFaceNotice(message);
+        return;
+      }
+
       const attempts = faceFailCountRef.current + 1;
       setFaceFailCount(attempts);
       if (attempts >= MAX_FACE_ATTEMPTS) {
-        goToOtp(`${message} — สแกนไม่ผ่าน ${attempts} ครั้ง กรุณาใช้รหัสจากเว็บ`);
+        goToOtp(`${message} — สแกนไม่ผ่าน ${attempts} ครั้ง กรุณาใช้รหัสฉุกเฉินจากเว็บ`);
       } else {
         setFaceNotice(message);
       }
     } catch (error) {
-      setFaceFailCount((current) => current + 1);
+      setOtpAllowed(true);
       setFaceNotice(error.message);
     } finally {
       setSubmitting(false);
@@ -226,7 +236,7 @@ export default function KioskEntry() {
   const today = useMemo(() => DATE_FORMAT.format(now), [now]);
 
   return (
-    <div className="min-h-screen w-full text-white flex flex-col bg-[radial-gradient(circle_at_20%_10%,#1E45B8_0%,#0B173D_55%,#050B22_100%)]">
+    <div className="min-h-screen w-full text-white flex flex-col bg-[radial-gradient(circle_at_20%_10%,#123B82_0%,#06132E_55%,#030918_100%)]">
       <header className="flex items-center justify-between px-8 py-6 md:px-14 md:py-8">
         <div className="flex items-center gap-3">
           <div className="w-11 h-11 rounded-2xl bg-gold-gradient text-navy-950 flex items-center justify-center">
@@ -234,63 +244,51 @@ export default function KioskEntry() {
           </div>
           <div>
             <div className="text-lg md:text-xl font-bold tracking-tight">KINOF</div>
-            <div className="text-xs md:text-sm text-white/60">จุดเข้าใช้ห้องแล็บ</div>
+            <div className="text-xs md:text-sm text-white/90">จุดเข้าใช้ห้องแล็บ</div>
           </div>
         </div>
         <div className="text-right">
           <div className="text-3xl md:text-5xl font-bold tabular-nums">{clock}</div>
-          <div className="text-xs md:text-sm text-white/60 mt-1">{today}</div>
+          <div className="text-xs md:text-sm text-white/90 mt-1">{today}</div>
         </div>
       </header>
 
       <main className="flex-1 flex items-center justify-center px-6 pb-10 md:px-14">
         {loadingRoom ? (
-          <p className="text-lg text-white/70">กำลังโหลดข้อมูลห้อง...</p>
+          <p className="text-lg text-white/95">กำลังโหลดข้อมูลห้อง...</p>
         ) : roomError ? (
-          <KioskPanel>
-            <XCircle size={72} className="text-rose-400 mx-auto" />
-            <h1 className="text-3xl md:text-4xl font-bold mt-6">ไม่พบห้องแล็บนี้</h1>
-            <p className="text-base md:text-lg text-white/70 mt-3">{roomError}</p>
-            <p className="text-sm text-white/45 mt-6">กรุณาแจ้งผู้ดูแลระบบเพื่อตั้งค่าเครื่อง Kiosk ใหม่</p>
+          <KioskPanel light>
+            <XCircle size={72} className="text-rose-500 mx-auto" />
+            <h1 className="text-3xl md:text-4xl font-bold text-ink mt-6">ไม่พบห้องแล็บนี้</h1>
+            <p className="text-base md:text-lg text-slate-700 mt-3">{roomError}</p>
+            <p className="text-sm text-slate-600 mt-6">กรุณาแจ้งผู้ดูแลระบบเพื่อตั้งค่าเครื่อง Kiosk ใหม่</p>
           </KioskPanel>
         ) : step === "welcome" ? (
-          <KioskPanel>
+          <KioskPanel light>
             <span className={`inline-flex items-center gap-2 rounded-full border px-4 py-1.5 text-sm font-semibold ${status.tone}`}>
               {status.label}
             </span>
-            <h1 className="text-4xl md:text-6xl font-bold mt-6 tracking-tight">{room.name}</h1>
-            {room.building && <p className="text-lg md:text-2xl text-white/60 mt-2">{room.building}</p>}
-            <p className="text-base md:text-xl text-white/75 mt-8">
-              {roomOpen ? "แตะเพื่อเริ่มเข้าใช้ห้อง" : "ห้องนี้ยังไม่เปิดให้เข้าใช้งานในขณะนี้"}
+            <h1 className="text-4xl md:text-6xl font-bold text-ink mt-6 tracking-tight">{room.name}</h1>
+            {room.building && <p className="text-lg md:text-2xl text-slate-600 mt-2">{room.building}</p>}
+            <p className="text-base md:text-xl text-slate-700 mt-8">
+              {roomOpen ? "แตะเพื่อสแกนใบหน้าเข้าใช้ห้อง" : "ห้องนี้ยังไม่เปิดให้เข้าใช้งานในขณะนี้"}
             </p>
 
-            <div className="mt-10 grid gap-4 md:grid-cols-2">
-              <button
-                type="button"
-                disabled={!roomOpen}
-                onClick={() => {
-                  setFaceNotice("");
-                  setFaceFailCount(0);
-                  setStep("face");
-                }}
-                className="rounded-3xl border border-white/15 bg-white/[0.07] px-8 py-8 text-left transition-all hover:bg-white/15 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100"
-              >
-                <ScanFace size={40} className="text-white/80" />
-                <div className="text-xl md:text-2xl font-bold mt-4">สแกนใบหน้า</div>
-                <div className="text-sm md:text-base text-white/60 mt-1">มองกล้องค้างไว้ ระบบจับภาพเอง</div>
-              </button>
-
-              <button
-                type="button"
-                disabled={!roomOpen}
-                onClick={() => goToOtp()}
-                className="rounded-3xl border border-gold-500/40 bg-gold-500/15 px-8 py-8 text-left transition-all hover:bg-gold-500/25 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100"
-              >
-                <KeyRound size={40} className="text-gold-400" />
-                <div className="text-xl md:text-2xl font-bold mt-4">ใช้รหัสจากเว็บ</div>
-                <div className="text-sm md:text-base text-white/70 mt-1">กรอกรหัส 6 หลักที่ขอไว้</div>
-              </button>
-            </div>
+            <button
+              type="button"
+              disabled={!roomOpen}
+              onClick={() => {
+                setFaceNotice("");
+                setFaceFailCount(0);
+                setOtpAllowed(false);
+                setStep("face");
+              }}
+              className="mt-10 w-full rounded-3xl border border-navy-100 bg-navy-50 px-8 py-8 text-left transition-all hover:bg-navy-100 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100"
+            >
+              <ScanFace size={40} className="text-navy-800" />
+              <div className="text-xl md:text-2xl font-bold text-ink mt-4">สแกนใบหน้า</div>
+              <div className="text-sm md:text-base text-slate-600 mt-1">ทางเข้าหลัก — มองกล้องค้างไว้ ระบบจับภาพเอง</div>
+            </button>
           </KioskPanel>
         ) : step === "face" ? (
           <KioskFaceScan
@@ -300,14 +298,16 @@ export default function KioskEntry() {
             submitting={submitting}
             onCaptured={submitFace}
             onClearNotice={() => setFaceNotice("")}
-            onUseOtp={() => goToOtp()}
+            onUseOtp={() => goToOtp("รหัสฉุกเฉิน — ใช้เมื่อสแกนหน้าไม่สำเร็จเท่านั้น")}
+            otpAllowed={otpAllowed}
+            onCameraError={() => setOtpAllowed(true)}
             onCancel={backToWelcome}
           />
         ) : step === "otp" ? (
           <KioskPanel>
-            <h1 className="text-3xl md:text-4xl font-bold tracking-tight">กรอกรหัสที่ขอจากเว็บ KINOF</h1>
-            <p className="text-base md:text-lg text-white/65 mt-3">
-              {room.name} · รหัส 6 หลัก ใช้ได้ครั้งเดียวภายใน 10 นาที
+            <h1 className="text-3xl md:text-4xl font-bold tracking-tight">รหัสฉุกเฉิน — ใช้เมื่อสแกนหน้าไม่สำเร็จเท่านั้น</h1>
+            <p className="text-base md:text-lg text-white/90 mt-3">
+              {room.name} · กรอกรหัส 6 หลักที่ขอจากเว็บ KINOF · ใช้ได้ครั้งเดียวภายใน 10 นาที
             </p>
             {otpNotice && (
               <p
@@ -371,13 +371,13 @@ export default function KioskEntry() {
                 type="button"
                 disabled={submitting}
                 onClick={backToWelcome}
-                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/15 px-8 py-5 text-lg text-white/80 transition-colors hover:bg-white/10 disabled:opacity-40"
+                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/15 px-8 py-5 text-lg text-white/95 transition-colors hover:bg-white/10 disabled:opacity-40"
               >
                 <ArrowLeft size={20} /> ยกเลิก
               </button>
             </div>
 
-            <p className="text-sm text-white/45 mt-6">
+            <p className="text-sm text-white/95 mt-6">
               ยังไม่มีรหัส? เปิดเว็บ KINOF บนมือถือ แล้วเลือก &quot;รหัสเข้าห้อง&quot;
             </p>
           </KioskPanel>
@@ -385,7 +385,7 @@ export default function KioskEntry() {
           <KioskPanel>
             <CheckCircle2 size={80} className="text-emerald-400 mx-auto" />
             <h1 className="text-4xl md:text-5xl font-bold mt-6 tracking-tight">เข้าใช้ห้องได้</h1>
-            <p className="text-xl md:text-2xl text-white/80 mt-3">
+            <p className="text-xl md:text-2xl text-white/95 mt-3">
               {entry.user?.displayName} · {entry.room?.name}
             </p>
 
@@ -395,19 +395,19 @@ export default function KioskEntry() {
               </div>
               <div className="text-6xl md:text-8xl font-bold mt-4 tabular-nums">{entry.seatLabel}</div>
               {entry.computerName && (
-                <div className="flex items-center justify-center gap-2 text-white/60 text-base md:text-lg mt-4">
+                <div className="flex items-center justify-center gap-2 text-white/90 text-base md:text-lg mt-4">
                   <Monitor size={18} /> {entry.computerName}
                 </div>
               )}
             </div>
 
-            <p className="text-base text-white/60 mt-8">
+            <p className="text-base text-white/90 mt-8">
               กรุณาไปที่เครื่องตามหมายเลข · หน้าจอจะกลับหน้าแรกใน {resetIn} วินาที
             </p>
             <button
               type="button"
               onClick={backToWelcome}
-              className="mt-5 rounded-2xl border border-white/15 px-8 py-4 text-lg text-white/80 transition-colors hover:bg-white/10"
+              className="mt-5 rounded-2xl border border-white/15 px-8 py-4 text-lg text-white/95 transition-colors hover:bg-white/10"
             >
               เสร็จสิ้น
             </button>
@@ -416,22 +416,24 @@ export default function KioskEntry() {
           <KioskPanel>
             <XCircle size={80} className="text-rose-400 mx-auto" />
             <h1 className="text-4xl md:text-5xl font-bold mt-6 tracking-tight">เข้าใช้ห้องไม่ได้</h1>
-            <p className="text-xl md:text-2xl text-white/80 mt-4">{deniedMessage}</p>
-            <p className="text-base text-white/50 mt-6">
+            <p className="text-xl md:text-2xl text-white/95 mt-4">{deniedMessage}</p>
+            <p className="text-base text-white/95 mt-6">
               หากต้องการความช่วยเหลือ กรุณาติดต่อผู้ดูแลห้องแล็บ · กลับหน้าแรกใน {resetIn} วินาที
             </p>
             <div className="mt-8 flex flex-col md:flex-row items-stretch md:items-center justify-center gap-3">
-              <button
-                type="button"
-                onClick={() => goToOtp()}
-                className="rounded-2xl bg-gold-gradient text-navy-950 px-10 py-5 text-xl font-bold transition-all active:scale-95"
-              >
-                กรอกรหัสอีกครั้ง
-              </button>
+              {otpAllowed && (
+                <button
+                  type="button"
+                  onClick={() => goToOtp("รหัสฉุกเฉิน — ใช้เมื่อสแกนหน้าไม่สำเร็จเท่านั้น")}
+                  className="rounded-2xl bg-gold-gradient text-navy-950 px-10 py-5 text-xl font-bold transition-all active:scale-95"
+                >
+                  กรอกรหัสฉุกเฉิน
+                </button>
+              )}
               <button
                 type="button"
                 onClick={backToWelcome}
-                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/15 px-8 py-5 text-lg text-white/80 transition-colors hover:bg-white/10"
+                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/15 px-8 py-5 text-lg text-white/95 transition-colors hover:bg-white/10"
               >
                 <ArrowLeft size={20} /> กลับหน้าแรก
               </button>
@@ -444,8 +446,9 @@ export default function KioskEntry() {
 }
 
 /**
- * Kiosk face scan. A blink challenge is required before sending the frame. This is
- * stronger than a still-image check, but is not a replacement for server-side PAD.
+ * Kiosk face scan. The door needs speed over liveness checks (docs/AUTH_ADAPTIVE.md), so
+ * this reuses the MediaPipe detector from enrollment without the blink step: hold a
+ * centred face for ~1.5s and the frame is sent, or press the shutter button.
  */
 function KioskFaceScan({
   room,
@@ -455,9 +458,13 @@ function KioskFaceScan({
   onCaptured,
   onClearNotice,
   onUseOtp,
+  otpAllowed,
+  onCameraError,
   onCancel,
 }) {
-  const handleError = useCallback(() => {}, []);
+  const handleError = useCallback(() => {
+    onCameraError?.();
+  }, [onCameraError]);
   const { videoRef, status, hint, progress, retry, stopCamera, captureNow } = useFaceCapture({
     onCaptured,
     onError: handleError,
@@ -475,7 +482,7 @@ function KioskFaceScan({
   return (
     <KioskPanel>
       <h1 className="text-3xl md:text-4xl font-bold tracking-tight">สแกนใบหน้าเพื่อเข้าใช้ห้อง</h1>
-      <p className="text-base md:text-lg text-white/65 mt-3">
+      <p className="text-base md:text-lg text-white/90 mt-3">
         {room.name} · มองกล้องตรง ๆ ค้างไว้ครู่เดียว
       </p>
 
@@ -501,7 +508,7 @@ function KioskFaceScan({
           style={{ width: `${progress}%` }}
         />
       </div>
-      <p className="mt-4 min-h-[1.75rem] text-lg md:text-xl text-white/80" aria-live="polite">
+      <p className="mt-4 min-h-[1.75rem] text-lg md:text-xl text-white/95" aria-live="polite">
         {busy
           ? "กำลังตรวจสอบใบหน้า..."
           : notice
@@ -518,7 +525,7 @@ function KioskFaceScan({
         </p>
       )}
       {attempts > 0 && (
-        <p className="mt-3 text-sm md:text-base text-white/50">
+        <p className="mt-3 text-sm md:text-base text-white/95">
           สแกนไม่ผ่าน {attempts} / {MAX_FACE_ATTEMPTS} ครั้ง
         </p>
       )}
@@ -542,17 +549,19 @@ function KioskFaceScan({
             <RefreshCw size={22} /> สแกนใหม่
           </button>
         )}
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => {
-            stopCamera();
-            onUseOtp();
-          }}
-          className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/15 px-8 py-5 text-lg text-white/80 transition-colors hover:bg-white/10 disabled:opacity-40"
-        >
-          <KeyRound size={20} /> ใช้รหัสจากเว็บ
-        </button>
+        {otpAllowed && (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              stopCamera();
+              onUseOtp();
+            }}
+            className="inline-flex items-center justify-center gap-2 rounded-2xl border border-amber-300/40 bg-amber-500/15 px-8 py-5 text-lg text-amber-100 transition-colors hover:bg-amber-500/25 disabled:opacity-40"
+          >
+            <KeyRound size={20} /> รหัสฉุกเฉิน — ใช้เมื่อสแกนหน้าไม่สำเร็จเท่านั้น
+          </button>
+        )}
         <button
           type="button"
           disabled={busy}
@@ -560,7 +569,7 @@ function KioskFaceScan({
             stopCamera();
             onCancel();
           }}
-          className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/15 px-8 py-5 text-lg text-white/80 transition-colors hover:bg-white/10 disabled:opacity-40"
+          className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/15 px-8 py-5 text-lg text-white/95 transition-colors hover:bg-white/10 disabled:opacity-40"
         >
           <ArrowLeft size={20} /> ยกเลิก
         </button>
@@ -569,9 +578,11 @@ function KioskFaceScan({
   );
 }
 
-function KioskPanel({ children }) {
+function KioskPanel({ children, light = false }) {
   return (
-    <div className="w-full max-w-3xl rounded-4xl border border-white/10 bg-white/[0.04] backdrop-blur-sm px-7 py-10 md:px-14 md:py-14 text-center shadow-2xl animate-fade-in">
+    <div className={`w-full max-w-3xl rounded-4xl border backdrop-blur-sm px-7 py-10 md:px-14 md:py-14 text-center shadow-2xl animate-fade-in ${
+      light ? "border-slate-200 bg-white text-slate-900" : "border-white/10 bg-white/[0.04]"
+    }`}>
       {children}
     </div>
   );

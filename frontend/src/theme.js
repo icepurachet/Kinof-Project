@@ -1,17 +1,16 @@
 // ============================================================
 // KINOF Design Tokens — v2
-// Same identity family (blue + gold) as before, but reworked to be
-// lighter, brighter, and gradient-forward rather than flat/dark.
+// Same identity family (blue + gold) as before, with a deeper navy palette.
 // Variable names kept identical to v1 so components don't need
 // their imports touched — only the values change.
 // ============================================================
 
-// --- Primary: a lighter, more vivid royal blue (was near-black navy) ---
-export const NAVY = "#2F5FD9";        // primary — vivid royal blue
-export const NAVY2 = "#1E45B8";       // deeper stop for gradients
-export const NAVY_LIGHT = "#4C74E8";  // hover / active surface
-export const NAVY_ACCENT = "#7B9BF2"; // borders / focus rings on dark surfaces
-export const NAVY_SOFT = "#EEF2FF";   // light tint — badges, section backgrounds
+// --- Primary: deep navy blue ---
+export const NAVY = "#123B82";        // primary — deep navy blue
+export const NAVY2 = "#0B2457";       // deeper stop for gradients
+export const NAVY_LIGHT = "#1C4FA3";  // hover / active surface
+export const NAVY_ACCENT = "#5679C4"; // borders / focus rings on dark surfaces
+export const NAVY_SOFT = "#E8EEF8";   // light tint — badges, section backgrounds
 
 // --- Accent: brighter, warmer gold ---
 export const GOLD = "#FFB020";
@@ -29,7 +28,7 @@ export const GRADIENT_GOLD = `linear-gradient(135deg, ${GOLD} 0%, ${GOLD_HOVER} 
 // --- Neutrals / canvas ---
 export const BG_APP = "#F7F9FF";      // airy, faint blue-white canvas
 export const INK = "#101828";         // near-black for headings
-export const MUTED = "#64748B";       // secondary text
+export const MUTED = "#475569";       // secondary text
 
 // --- Semantic ---
 export const SUCCESS = "#16A34A";

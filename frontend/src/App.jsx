@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Home,
   Calendar,
@@ -45,7 +45,21 @@ import AdminAuditLog from "./pages/admin/AdminAuditLog";
 
 import { getMyBookings, mapBookingRow } from "./api/bookings";
 import { getMyProblemReports, getProblemReports } from "./api/problemReports";
-import { getMe, logout, readStoredAuth, storeAuth } from "./api/auth";
+import {
+  AUTH_CHANGED_EVENT,
+  adoptBrowserSession,
+  beginBrowserSession,
+  clearStoredAuth,
+  ensureBrowserSession,
+  getMe,
+  getTabSessionId,
+  isSessionTakenOver,
+  logout,
+  markSessionTakenOver,
+  peekStoredAuth,
+  readStoredAuth,
+  storeAuth,
+} from "./api/auth";
 import { BG_APP } from "./theme";
 import { getDisplayName } from "./utils/displayName";
 import { isStaffAdmin, isSuperAdmin } from "./utils/roles";
@@ -82,12 +96,13 @@ export default function App() {
 
   const [myBookings, setMyBookings] = useState([]);
   const [problemReports, setProblemReports] = useState([]);
+  const tabSessionIdRef = useRef(auth?.sessionId ?? getTabSessionId());
 
   useEffect(() => {
     let active = true;
     const storedAuth = readStoredAuth();
     if (!storedAuth?.accessToken && !storedAuth?.refreshToken) {
-      sessionStorage.removeItem("kinofAuth");
+      clearStoredAuth();
       setAuth(null);
       setBootstrapping(false);
       return () => {
@@ -98,20 +113,20 @@ export default function App() {
     getMe()
       .then((user) => {
         if (!active) return;
-        const currentAuth = readStoredAuth();
+        const currentAuth = readStoredAuth() ?? peekStoredAuth();
         if (!currentAuth?.accessToken) {
           throw new Error("เซสชันหมดอายุ");
         }
-        const nextAuth = { ...currentAuth, user };
-        storeAuth(nextAuth);
+        const nextAuth = ensureBrowserSession({ ...currentAuth, user });
         setAuth(nextAuth);
+        tabSessionIdRef.current = nextAuth.sessionId;
         if (isStaffAdmin(user.userType)) {
           setPage("dashboard");
         }
       })
       .catch(() => {
         if (!active) return;
-        sessionStorage.removeItem("kinofAuth");
+        clearStoredAuth();
         setAuth(null);
         navigate("/login", { replace: true });
       })
@@ -123,6 +138,63 @@ export default function App() {
       active = false;
     };
   }, [navigate]);
+
+  useEffect(() => {
+    const kickThisTab = (notice) => {
+      markSessionTakenOver();
+      tabSessionIdRef.current = null;
+      setAuth(null);
+      setSidebarOpen(false);
+      navigate("/login", {
+        replace: true,
+        state: notice ? { notice } : undefined,
+      });
+    };
+
+    const syncLocalAuth = () => {
+      const nextAuth = readStoredAuth();
+      setAuth(nextAuth);
+      setSidebarOpen(false);
+      if (!nextAuth) navigate("/login", { replace: true });
+    };
+
+    const syncAuthAcrossTabs = (event) => {
+      if (event.key !== "kinofSessionId" && event.key !== "kinofAuth") return;
+      const nextSessionId = event.key === "kinofSessionId"
+        ? event.newValue
+        : peekStoredAuth()?.sessionId ?? null;
+      const mine = tabSessionIdRef.current;
+
+      if (mine && nextSessionId && mine !== nextSessionId) {
+        kickThisTab("มีการเข้าสู่ระบบจากบัญชีอื่นในเบราว์เซอร์นี้");
+        return;
+      }
+      if (mine && !nextSessionId) {
+        kickThisTab();
+        return;
+      }
+      if (!mine && nextSessionId && !isSessionTakenOver()) {
+        const adopted = adoptBrowserSession();
+        if (!adopted) return;
+        tabSessionIdRef.current = adopted.sessionId;
+        setAuth(adopted);
+        setPage(isStaffAdmin(adopted.user?.userType) ? "dashboard" : "home");
+        navigate("/", { replace: true });
+      }
+    };
+
+    window.addEventListener("storage", syncAuthAcrossTabs);
+    window.addEventListener(AUTH_CHANGED_EVENT, syncLocalAuth);
+    return () => {
+      window.removeEventListener("storage", syncAuthAcrossTabs);
+      window.removeEventListener(AUTH_CHANGED_EVENT, syncLocalAuth);
+    };
+  }, [navigate]);
+
+  useEffect(() => {
+    setPage(role === "admin" ? "dashboard" : "home");
+    setTrackingNav(null);
+  }, [auth?.user?.id, role]);
 
   useEffect(() => {
     if (bootstrapping || !auth?.accessToken || role !== "user") return;
@@ -144,12 +216,12 @@ export default function App() {
   }, [auth?.accessToken, bootstrapping, role]);
 
   const handleVerified = (result) => {
-    const nextAuth = {
+    const nextAuth = beginBrowserSession({
       accessToken: result.accessToken,
       refreshToken: result.refreshToken,
       user: result.user,
-    };
-    storeAuth(nextAuth);
+    });
+    tabSessionIdRef.current = nextAuth.sessionId;
     setAuth(nextAuth);
     setPage(isStaffAdmin(result.user.userType) ? "dashboard" : "home");
     if (!result.user.faceEnrolled && !isStaffAdmin(result.user.userType)) {
@@ -167,13 +239,21 @@ export default function App() {
 
   const handleLogout = () => {
     logout().catch(() => {});
-    sessionStorage.removeItem("kinofAuth");
+    clearStoredAuth();
+    tabSessionIdRef.current = null;
     setAuth(null);
     setSidebarOpen(false);
     navigate("/login");
   };
 
   const handleSetPage = (nextPage) => {
+    const allowedPages = role === "admin"
+      ? [...ADMIN_NAV.map((item) => item.key), ...(isSuperAdmin(auth?.user?.userType) ? ["audit"] : [])]
+      : USER_NAV.map((item) => item.key);
+    if (!allowedPages.includes(nextPage)) {
+      notify("บัญชีนี้ไม่มีสิทธิ์เปิดหน้านี้");
+      return;
+    }
     if (nextPage === "tracking") setTrackingNav(null);
     setPage(nextPage);
   };
@@ -235,6 +315,7 @@ export default function App() {
           <UserHelp
             problemReports={problemReports}
             onSubmitted={(report) => setProblemReports((current) => [report, ...current])}
+            onRefresh={() => getMyProblemReports().then(setProblemReports)}
             notify={notify}
           />
         )}

@@ -61,12 +61,9 @@ describe('FaceService', () => {
         .mockResolvedValueOnce({ insertId: 1 }),
     };
     const entryService = {
-      enterRoom: jest.fn().mockResolvedValue({
+      authorizeDoor: jest.fn().mockResolvedValue({
         allowed: true,
         reason: 'ok',
-        sessionId: 12,
-        seatLabel: '07',
-        computerName: 'LAB-07',
         user: { id: 7, displayName: 'Student 07' },
       }),
     };
@@ -81,9 +78,7 @@ describe('FaceService', () => {
       granted: true,
       identified: true,
       user: { id: 7 },
-      sessionId: 12,
-      seatLabel: '07',
     });
-    expect(entryService.enterRoom).toHaveBeenCalledWith(7, 2);
+    expect(entryService.authorizeDoor).toHaveBeenCalledWith(7, 2);
   });
 });

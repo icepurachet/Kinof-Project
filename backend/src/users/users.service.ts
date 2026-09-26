@@ -28,6 +28,10 @@ export class UsersService {
       last_name: createUserDto.last_name,
       phone: createUserDto.phone ?? null,
       role: createUserDto.role,
+      student_id:
+        createUserDto.role === 'student'
+          ? (createUserDto.student_id ?? null)
+          : null,
     });
 
     const savedUser = await this.saveUser(user);

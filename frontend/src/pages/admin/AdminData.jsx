@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { CalendarDays, DoorOpen, Shield, Upload, Download, Plus, Pencil, Trash2, Users, Monitor } from "lucide-react";
+import { CalendarDays, Copy, DoorOpen, Shield, Upload, Download, Plus, Pencil, Trash2, Users, Monitor } from "lucide-react";
 import Card from "../../components/Card";
 import Button from "../../components/Button";
 import Pill from "../../components/Pill";
@@ -19,6 +19,9 @@ import {
   downloadScheduleTemplate,
   enableAdminUser,
   getAdminRooms,
+  getKioskDevices,
+  createKioskDevice,
+  revokeKioskDevice,
   getAdminComputers,
   getAdminSchedule,
   getAdminSchedules,
@@ -239,7 +242,7 @@ function SchedulesTab({ notify }) {
           </Button>
         </div>
         <div className="flex flex-wrap gap-2 items-center">
-          <input type="file" accept=".csv,text/csv" onChange={(event) => { setFile(event.target.files?.[0] ?? null); setPreview(null); }} className="text-xs" />
+          <input type="file" accept=".xlsx,.csv" onChange={(event) => { setFile(event.target.files?.[0] ?? null); setPreview(null); }} className="text-xs" />
           <Button size="sm" icon={Upload} iconPosition="left" disabled={busy} onClick={runPreview}>ดูตัวอย่าง</Button>
           {preview?.canConfirm && <Button size="sm" disabled={busy} onClick={runConfirm}>ยืนยันนำเข้า</Button>}
         </div>
@@ -365,7 +368,7 @@ function SchedulesTab({ notify }) {
               <button onClick={() => setSelected(null)} className="text-gray-400 text-xl" aria-label="ปิด">×</button>
             </div>
             <form onSubmit={addStudent} className="flex gap-2 mb-4">
-              <input value={studentId} onChange={(e) => setStudentId(e.target.value.replace(/\D/g, "").slice(0, 10))} placeholder="User ID ของนักศึกษา" className={inputClass} />
+              <input value={studentId} onChange={(e) => setStudentId(e.target.value.replace(/\D/g, "").slice(0, 10))} placeholder="รหัสนักศึกษา 10 หลัก" className={inputClass} />
               <Button size="sm">เพิ่ม</Button>
             </form>
             <table className="w-full text-xs">
@@ -462,7 +465,145 @@ function RoomsTab({ notify }) {
           </tbody>
         </table>
       </Card>
+      <KioskDevicesCard rooms={rows} notify={notify} />
     </div>
+  );
+}
+
+function formatKioskWhen(value) {
+  if (!value) return "ยังไม่เคยใช้";
+  return new Date(value).toLocaleString("th-TH", { timeZone: "Asia/Bangkok" });
+}
+
+async function copyText(value) {
+  await navigator.clipboard.writeText(value);
+}
+
+function KioskDevicesCard({ rooms, notify }) {
+  const [roomId, setRoomId] = useState("");
+  const [label, setLabel] = useState("เครื่องประตู");
+  const [devices, setDevices] = useState([]);
+  const [created, setCreated] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = async (selectedRoomId = roomId) => {
+    const rows = await getKioskDevices(selectedRoomId || undefined);
+    setDevices(rows);
+  };
+
+  useEffect(() => {
+    if (!roomId && rooms[0]) setRoomId(rooms[0].id);
+  }, [roomId, rooms]);
+
+  useEffect(() => {
+    load(roomId).catch((error) => notify(error.message));
+  }, [roomId]);
+
+  const createDevice = async (event) => {
+    event.preventDefault();
+    if (!roomId) return;
+    setBusy(true);
+    try {
+      const result = await createKioskDevice({ roomId, label });
+      setCreated(result);
+      setLabel("เครื่องประตู");
+      await load(roomId);
+      notify("สร้างอุปกรณ์แล้ว — คัดลอกคีย์ทันที เพราะจะไม่แสดงอีก");
+    } catch (error) {
+      notify(error.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const revokeDevice = async (device) => {
+    if (!window.confirm(`เพิกถอนคีย์ของ ${device.label || "เครื่องประตู"}? เครื่องที่ใช้อยู่จะเข้าไม่ได้จนกว่าจะตั้งคีย์ใหม่`)) return;
+    try {
+      await revokeKioskDevice(device.id);
+      if (created?.id === device.id) setCreated(null);
+      await load(roomId);
+      notify("เพิกถอนคีย์แล้ว");
+    } catch (error) {
+      notify(error.message);
+    }
+  };
+
+  const setupUrl = created
+    ? `${window.location.origin}/kiosk/${created.roomId}?key=${encodeURIComponent(created.apiKey)}`
+    : "";
+
+  return (
+    <Card className="p-5">
+      <h2 className="text-sm font-bold text-ink">อุปกรณ์ Kiosk ต่อห้อง</h2>
+      <p className="text-xs text-muted mt-1">
+        คีย์ผูกห้อง ไม่ผูกที่นั่ง — เปิดลิงก์บนเครื่องประตูครั้งเดียว แล้วคีย์จะถูกเก็บในเครื่องนั้น ไม่ต้องกรอกบนจอสแกน
+      </p>
+      <form onSubmit={createDevice} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-4">
+        <Field label="ห้อง">
+          <select value={roomId} onChange={(event) => setRoomId(event.target.value)} className={inputClass}>
+            {rooms.map((room) => (
+              <option key={room.id} value={room.id}>{room.name}</option>
+            ))}
+          </select>
+        </Field>
+        <Field label="ชื่ออุปกรณ์">
+          <input value={label} onChange={(event) => setLabel(event.target.value)} className={inputClass} placeholder="เครื่องประตู" />
+        </Field>
+        <div className="flex items-end">
+          <Button size="sm" disabled={!roomId || busy}>{busy ? "กำลังสร้าง..." : "สร้างคีย์"}</Button>
+        </div>
+      </form>
+      {created?.apiKey && (
+        <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
+          <p className="text-xs font-semibold text-amber-900">แสดงคีย์ครั้งเดียว — คัดลอกแล้วเปิดบนเครื่องประตู</p>
+          <p className="mt-2 font-mono text-xs break-all text-ink">{created.apiKey}</p>
+          <p className="mt-2 text-xs text-slate-600 break-all">{setupUrl}</p>
+          <div className="flex gap-2 mt-3">
+            <Button type="button" variant="secondary" size="sm" icon={Copy} onClick={async () => {
+              await copyText(created.apiKey);
+              notify("คัดลอกคีย์แล้ว");
+            }}>คัดลอกคีย์</Button>
+            <Button type="button" variant="secondary" size="sm" icon={Copy} onClick={async () => {
+              await copyText(setupUrl);
+              notify("คัดลอกลิงก์ตั้งค่าแล้ว");
+            }}>คัดลอกลิงก์เครื่องประตู</Button>
+          </div>
+        </div>
+      )}
+      <div className="overflow-x-auto mt-4">
+        <table className="w-full min-w-[640px] text-xs">
+          <thead>
+            <tr className="text-muted text-left border-b">
+              <th className="pb-2 font-normal">อุปกรณ์</th>
+              <th className="pb-2 font-normal">ห้อง</th>
+              <th className="pb-2 font-normal">สถานะ</th>
+              <th className="pb-2 font-normal">ใช้ล่าสุด</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {devices.map((device) => (
+              <tr key={device.id} className="border-b border-slate-50">
+                <td className="py-3">{device.label || "เครื่องประตู"}</td>
+                <td className="py-3">{device.roomName}</td>
+                <td className="py-3">
+                  <Pill tone={device.revoked ? "red" : "green"}>{device.revoked ? "เพิกถอนแล้ว" : "ใช้งานได้"}</Pill>
+                </td>
+                <td className="py-3">{formatKioskWhen(device.lastSeenAt)}</td>
+                <td className="py-3 text-right">
+                  {!device.revoked && (
+                    <Button variant="danger" size="sm" onClick={() => revokeDevice(device)}>เพิกถอน</Button>
+                  )}
+                </td>
+              </tr>
+            ))}
+            {devices.length === 0 && (
+              <tr><td colSpan={5} className="py-8 text-center text-muted">ยังไม่มีอุปกรณ์ Kiosk ของห้องนี้</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </Card>
   );
 }
 
@@ -587,7 +728,7 @@ function UsersTab({ notify }) {
 }
 
 function AdminsTab({ notify }) {
-  const empty = { email: "", password: "", firstName: "", lastName: "", role: "admin" };
+  const empty = { email: "", password: "", username: "", jobTitle: "", phone: "", firstName: "", lastName: "", role: "admin" };
   const [rows, setRows] = useState([]);
   const [form, setForm] = useState(empty);
   const [editingId, setEditingId] = useState(null);
@@ -609,8 +750,8 @@ function AdminsTab({ notify }) {
         });
         notify("บันทึกผู้ดูแลระบบแล้ว");
       } else {
-        await createAdminUser(form);
-        notify("สร้างบัญชีผู้ดูแลแล้ว");
+        const result = await createAdminUser(form);
+        notify(result.message || "สร้างบัญชีและส่งลิงก์ตั้งรหัสแล้ว");
       }
       setForm(empty);
       setEditingId(null);
@@ -628,9 +769,10 @@ function AdminsTab({ notify }) {
           <Field label="อีเมล"><input type="email" required value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className={inputClass} /></Field>
           <Field label="ชื่อ"><input required value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} className={inputClass} /></Field>
           <Field label="นามสกุล"><input required value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} className={inputClass} /></Field>
-          <Field label={editingId ? "รหัสผ่านใหม่ (ไม่บังคับ)" : "รหัสผ่าน"}>
+          {editingId && <Field label="รหัสผ่านใหม่ (ไม่บังคับ)">
             <input type="password" required={!editingId} minLength={8} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} className={inputClass} />
-          </Field>
+          </Field>}
+          {!editingId && <><Field label="ชื่อผู้ใช้"><input minLength={3} value={form.username} onChange={e => setForm({...form, username:e.target.value})} className={inputClass} /></Field><Field label="ตำแหน่งงาน"><input value={form.jobTitle} onChange={e => setForm({...form, jobTitle:e.target.value})} className={inputClass} /></Field><Field label="โทรศัพท์"><input value={form.phone} onChange={e => setForm({...form, phone:e.target.value})} className={inputClass} /></Field></>}
           <Field label="สิทธิ์">
             <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} className={inputClass}>
               <option value="admin">Admin</option>

@@ -55,27 +55,26 @@ export async function getTrackingSeats(roomId) {
 }
 
 export async function getTrackingActivity({ roomId = "all", date = "all", type } = {}) {
-  const rows = await apiFetch("/admin/tracking/activity?limit=500");
-  return rows
-    .filter((row) => roomId === "all" || Number(row.room_id) === Number(roomId))
-    .filter((row) => date === "all" || bangkokDateOf(row.occurred_at) === date)
-    .filter((row) => {
-      if (type === "flagged") return row.risk_level !== "none";
-      return !type || row.event_type === type;
-    })
-    .map(toActivity);
+  const params = new URLSearchParams({ limit: "500" });
+  if (roomId !== "all") params.set("room_id", roomId);
+  if (date !== "all") params.set("date", date);
+  if (type) params.set("type", type);
+  const rows = await apiFetch(`/admin/tracking/activity?${params}`);
+  return rows.map(toActivity);
 }
 
 export async function getSeatActivity(seatId, limit = 50) {
-  const fetchLimit = Math.min(Math.max(limit * 10, 50), 500);
-  const rows = await apiFetch(`/admin/tracking/activity?limit=${fetchLimit}`);
-  return rows.filter((row) => row.computer_id === seatId).slice(0, limit).map(toActivity);
+  const rows = await apiFetch(`/admin/tracking/computers/${encodeURIComponent(seatId)}/activity?limit=${limit}`);
+  return rows.map(toActivity);
 }
 
 function toActivity(row) {
   return {
     ...row,
     at: row.occurred_at,
+    userId: row.user_id,
+    program: row.event_type === "program" ? row.name : null,
+    activityType: row.event_type,
     roomId: row.room_id,
     roomName: row.room_name,
     seatId: row.computer_id,
@@ -89,12 +88,6 @@ function toActivity(row) {
   };
 }
 
-function bangkokDateOf(value) {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Bangkok", year: "numeric", month: "2-digit", day: "2-digit",
-  }).format(new Date(value));
-}
-
 export function updateRoomStatus(roomId, status) {
   return apiFetch(`/admin/tracking/rooms/${roomId}/status`, {
     method: "PUT",
@@ -103,8 +96,10 @@ export function updateRoomStatus(roomId, status) {
 }
 
 export function bulkRoomAction(roomId, action) {
-  const status = action === "open" ? "active" : action === "close" ? "closed" : "maintenance";
-  return updateRoomStatus(roomId, status);
+  return apiFetch(`/admin/tracking/rooms/${roomId}/bulk-action`, {
+    method: "POST",
+    body: JSON.stringify({ action }),
+  });
 }
 
 export function forceSeatLogout(seatId) {
@@ -158,4 +153,95 @@ export async function exportTrackingReport({ report, roomId, from, to }) {
   link.click();
   URL.revokeObjectURL(url);
   return filename;
+}
+
+export function getWebsiteBlacklistCategories() {
+  return apiFetch("/lab/admin/website-blacklist/categories");
+}
+
+export function importWebsiteBlacklistCategory({ category, limit } = {}) {
+  return apiFetch("/lab/admin/website-blacklist/import", {
+    method: "POST",
+    body: JSON.stringify({ category, limit }),
+  });
+}
+
+export function removeWebsiteBlacklistCategory(category) {
+  return apiFetch(`/lab/admin/website-blacklist/categories/${encodeURIComponent(category)}`, {
+    method: "DELETE",
+  });
+}
+
+export function getProgramBlacklist() {
+  return apiFetch("/lab/admin/program-blacklist");
+}
+
+export function addProgramBlacklist({ processName, category, reason } = {}) {
+  return apiFetch("/lab/admin/program-blacklist", {
+    method: "POST",
+    body: JSON.stringify({ processName, category, reason }),
+  });
+}
+
+export function removeProgramBlacklist(id) {
+  return apiFetch(`/lab/admin/program-blacklist/${id}`, { method: "DELETE" });
+}
+
+export function getProgramAllowlist() {
+  return apiFetch("/lab/admin/program-allowlist");
+}
+
+export function addProgramAllowlist({ processName, displayName, category } = {}) {
+  return apiFetch("/lab/admin/program-allowlist", {
+    method: "POST",
+    body: JSON.stringify({ processName, displayName, category }),
+  });
+}
+
+export function removeProgramAllowlist(id) {
+  return apiFetch(`/lab/admin/program-allowlist/${id}`, { method: "DELETE" });
+}
+
+export function getUnknownPrograms({ roomId, date } = {}) {
+  const params = new URLSearchParams();
+  if (roomId && roomId !== "all") params.set("roomId", roomId);
+  if (date) params.set("date", date);
+  const query = params.toString();
+  return apiFetch(`/lab/admin/unknown-programs${query ? `?${query}` : ""}`);
+}
+
+export function getBehaviorReviews({ roomId } = {}) {
+  const params = new URLSearchParams();
+  if (roomId && roomId !== "all") params.set("roomId", roomId);
+  const query = params.toString();
+  return apiFetch(`/lab/admin/behavior/reviews${query ? `?${query}` : ""}`).then((data) => {
+    if (Array.isArray(data)) return { items: data, handledKeys: [], clearedKeys: [] };
+    return {
+      items: data?.items ?? [],
+      handledKeys: data?.handledKeys ?? [],
+      clearedKeys: data?.clearedKeys ?? [],
+    };
+  });
+}
+
+export function clearBehaviorReview(reviewId) {
+  return apiFetch(`/lab/admin/behavior/reviews/${reviewId}/clear`, { method: "POST" });
+}
+
+export function penalizeBehaviorReview(reviewId) {
+  return apiFetch(`/lab/admin/behavior/reviews/${reviewId}/penalize`, { method: "POST" });
+}
+
+export function blockFlaggedActivity(body) {
+  return apiFetch("/lab/admin/behavior/block", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function clearFlaggedActivity(body) {
+  return apiFetch("/lab/admin/behavior/clear", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
 }

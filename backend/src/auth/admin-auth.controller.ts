@@ -10,7 +10,7 @@ import {
 export class AdminAuthController {
   constructor(private readonly adminAuthService: AdminAuthService) {}
 
-  @Post('login')
+  // HTTP login is owned by LoginOtpController.
   login(@Body() loginDto: LoginDto): Promise<AdminLoginResult> {
     return this.adminAuthService.login(loginDto);
   }

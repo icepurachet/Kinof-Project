@@ -106,6 +106,32 @@ export class EntryService {
     };
   }
 
+  async authorizeDoor(
+    userId: number,
+    roomId: number,
+  ): Promise<KioskEntryResult> {
+    const access = await this.checkAccess(userId, roomId);
+    if (!access.allowed) return access;
+    const person = this.readRows(
+      await this.dataSource.query(
+        "SELECT u.first_name,u.last_name,r.room_name FROM users u JOIN rooms r ON r.id=? WHERE u.id=? AND u.is_active=1 AND r.status='active'",
+        [roomId, userId],
+      ),
+    )[0];
+    if (!person)
+      return { ...access, allowed: false, reason: 'บัญชีหรือห้องปิดใช้งาน' };
+    return {
+      ...access,
+      user: {
+        id: userId,
+        displayName: [person.first_name, person.last_name]
+          .filter(Boolean)
+          .join(' '),
+      },
+      room: { id: roomId, name: String(person.room_name) },
+    };
+  }
+
   async enterRoom(userId: number, roomId: number): Promise<KioskEntryResult> {
     const access = await this.checkAccess(userId, roomId);
     if (!access.allowed) return access;

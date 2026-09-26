@@ -1,5 +1,47 @@
 import { API_URL, apiFetch, readStoredAuth } from "./auth";
 
+export function parseReportCsv(text) {
+  const result = []; let row = [], value = "", quoted = false;
+  text = text.replace(/^\uFEFF/, "");
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    if (char === '"') {
+      if (quoted && text[i + 1] === '"') { value += '"'; i++; }
+      else quoted = !quoted;
+    } else if (char === "," && !quoted) { row.push(value); value = ""; }
+    else if (char === "\n" && !quoted) { row.push(value.replace(/\r$/, "")); result.push(row); row = []; value = ""; }
+    else value += char;
+  }
+  if (row.length || value) { row.push(value.replace(/\r$/, "")); result.push(row); }
+  return result;
+}
+
+export async function downloadAdminExport({ report, format, roomId, startDate, endDate }) {
+  const reports = {log:"session",prog:"program",web:"website",flag:"flagged"};
+  if (!reports[report] || startDate > endDate) throw new Error("ตัวกรองรายงานไม่ถูกต้อง");
+  const params = new URLSearchParams({report:reports[report],from:startDate,to:endDate});
+  if (roomId && roomId !== "all") params.set("room_id",roomId);
+  const response = await fetch(`${API_URL}/admin/tracking/export?${params}`, {headers:authHeaders()});
+  if (!response.ok) throw new Error("ส่งออกรายงานไม่สำเร็จ");
+  const csv = await response.text();
+  const excel = format === "Excel";
+  let blob;
+  if (excel) {
+    const {default:ExcelJS} = await import("exceljs");
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet("KINOF");
+    // CSV cells remain literal strings, never executable spreadsheet formulas.
+    sheet.addRows(parseReportCsv(csv));
+    sheet.getRow(1).font = {bold:true};
+    sheet.columns.forEach(column => {column.width = 24;});
+    blob = new Blob([await workbook.xlsx.writeBuffer()], {type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+  } else blob = new Blob([csv], {type:"text/csv;charset=utf-8"});
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url; link.download = `kinof-${report}-${startDate}-${endDate}.${excel?"xlsx":"csv"}`;
+  link.click(); setTimeout(() => URL.revokeObjectURL(url),1000);
+}
+
 function authHeaders() {
   const auth = readStoredAuth();
   return auth?.accessToken ? { Authorization: `Bearer ${auth.accessToken}` } : {};
@@ -156,7 +198,7 @@ export function deleteAdminSchedule(id) {
 export function addScheduleStudent(scheduleId, studentId) {
   return apiFetch(`/admin/data/subjects/${scheduleId}/enrollments`, {
     method: "POST",
-    body: JSON.stringify({ user_id: Number(studentId) }),
+    body: JSON.stringify({ student_id: studentId }),
   }).then(mapSubjectDetail);
 }
 
@@ -195,7 +237,7 @@ function mapSubjectDetail(row) {
     ...mapSubject(row),
     students: (row.enrollments ?? []).filter((item) => item.status === "active").map((item) => ({
       id: item.user_id,
-      studentId: item.user_id,
+      studentId: item.student_id ?? `User #${item.user_id}`,
       name: [item.first_name, item.last_name].filter(Boolean).join(" "),
       type: "enrolled",
     })),
@@ -244,7 +286,7 @@ export async function downloadScheduleTemplate() {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = "kinof-schedule-template.csv";
+  link.download = "kinof-schedule-template.xlsx";
   link.click();
   URL.revokeObjectURL(url);
 }
@@ -252,7 +294,10 @@ export async function downloadScheduleTemplate() {
 export function getAdminUsers() {
   return apiFetch("/super-admin/admins").then((rows) => rows.map((row) => ({
     id: row.id,
-    username: row.email,
+    username: row.username ?? row.email,
+    jobTitle: row.job_title,
+    phone: row.phone,
+    passwordSetupRequired: Boolean(row.password_setup_required),
     email: row.email,
     firstName: row.first_name,
     lastName: row.last_name,
@@ -266,7 +311,9 @@ export function createAdminUser(payload) {
     method: "POST",
     body: JSON.stringify({
       email: payload.email,
-      password: payload.password,
+      username: payload.username || undefined,
+      job_title: payload.jobTitle || undefined,
+      phone: payload.phone || undefined,
       first_name: payload.firstName,
       last_name: payload.lastName,
       role: payload.role,
@@ -283,6 +330,9 @@ export function updateAdminUser(id, payload) {
       last_name: payload.lastName,
       role: payload.role,
       ...(payload.password ? { password: payload.password } : {}),
+      username: payload.username || undefined,
+      job_title: payload.jobTitle || undefined,
+      phone: payload.phone || undefined,
     }),
   });
 }
@@ -302,8 +352,7 @@ export function enableAdminUser(id) {
 }
 
 export function resendAdminInvite(id) {
-  void id;
-  return Promise.reject(new Error("ระบบนี้กำหนดรหัสผ่านตอนสร้างบัญชี จึงไม่มีลิงก์เชิญ"));
+  return apiFetch(`/super-admin/admins/${id}/resend-invite`, { method: "POST" });
 }
 
 export function getAuditLogs({ action, page = 1, limit = 50 } = {}) {
@@ -325,4 +374,20 @@ export function getAuditLogs({ action, page = 1, limit = 50 } = {}) {
       })),
     };
   });
+}
+
+export function getKioskDevices(roomId) {
+  const query = roomId ? `?roomId=${encodeURIComponent(roomId)}` : "";
+  return apiFetch(`/lab/admin/kiosk-devices${query}`);
+}
+
+export function createKioskDevice({ roomId, label } = {}) {
+  return apiFetch("/lab/admin/kiosk-devices", {
+    method: "POST",
+    body: JSON.stringify({ roomId, label }),
+  });
+}
+
+export function revokeKioskDevice(deviceId) {
+  return apiFetch(`/lab/admin/kiosk-devices/${deviceId}/revoke`, { method: "POST" });
 }

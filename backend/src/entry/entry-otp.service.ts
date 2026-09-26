@@ -2,12 +2,14 @@ import {
   HttpException,
   HttpStatus,
   Injectable,
+  Optional,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHmac, randomInt } from 'crypto';
 import { DataSource } from 'typeorm';
 import { EntryService } from './entry.service';
+import { MailService } from '../mail/mail.service';
 
 export interface EntryOtpStatus {
   active: boolean;
@@ -15,8 +17,7 @@ export interface EntryOtpStatus {
   expiresAt: string | null;
   maskedEmail?: string;
   roomName?: string | null;
-  deliveryMode?: 'webhook' | 'development';
-  developmentCode?: string;
+  deliveryMode?: 'smtp' | 'webhook';
   monthlyLimit?: number;
   monthlyUsed?: number;
   monthlyRemaining?: number;
@@ -31,6 +32,7 @@ export class EntryOtpService {
     private readonly dataSource: DataSource,
     private readonly config: ConfigService,
     private readonly entryService: EntryService,
+    @Optional() private readonly mail?: MailService,
   ) {}
 
   async request(userId: number, roomId?: number): Promise<EntryOtpStatus> {
@@ -81,7 +83,7 @@ export class EntryOtpService {
     )) as unknown;
     const otpId = this.readInsertId(result);
 
-    let deliveryMode: 'webhook' | 'development';
+    let deliveryMode: 'smtp' | 'webhook';
     try {
       deliveryMode = await this.deliverCode(String(user.email), code);
     } catch (error) {
@@ -105,9 +107,6 @@ export class EntryOtpService {
         EntryOtpService.MONTHLY_REQUEST_LIMIT - monthlyUsed - 1,
       ),
     };
-    if ((this.config.get('NODE_ENV') ?? 'development') !== 'production') {
-      status.developmentCode = code;
-    }
     return status;
   }
 
@@ -184,7 +183,7 @@ export class EntryOtpService {
       };
     }
 
-    const access = await this.entryService.enterRoom(userId, roomId);
+    const access = await this.entryService.authorizeDoor(userId, roomId);
     await this.dataSource.query(
       `INSERT INTO entry_verifications
        (user_id, room_id, method, result, reason)
@@ -212,14 +211,14 @@ export class EntryOtpService {
   private async deliverCode(
     email: string,
     code: string,
-  ): Promise<'webhook' | 'development'> {
+  ): Promise<'smtp' | 'webhook'> {
+    if (this.mail?.configured()) {
+      await this.mail.sendOtp(email, code, 'เข้าห้องสำรอง');
+      return 'smtp';
+    }
     const url = this.config.get<string>('ENTRY_OTP_WEBHOOK_URL');
-    const environment = this.config.get<string>('NODE_ENV') ?? 'development';
     if (!url) {
-      if (environment === 'production') {
-        throw new ServiceUnavailableException('ยังไม่ได้ตั้งค่าระบบส่ง OTP');
-      }
-      return 'development';
+      throw new ServiceUnavailableException('ยังไม่ได้ตั้งค่าระบบส่ง OTP');
     }
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',

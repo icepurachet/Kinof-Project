@@ -4,7 +4,7 @@ import { CheckCircle2 } from "lucide-react";
 export default function Toast({ text, onDone }) {
   useEffect(() => {
     if (!text) return;
-    const t = setTimeout(onDone, 2800);
+    const t = setTimeout(onDone, 5000);
     return () => clearTimeout(t);
   }, [text, onDone]);
 

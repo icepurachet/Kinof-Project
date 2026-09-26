@@ -3,6 +3,7 @@ import {
   HttpException,
   HttpStatus,
   Injectable,
+  Optional,
   ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -12,6 +13,7 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import { DataSource } from 'typeorm';
 import { UsersService } from '../users/users.service';
 import { LoginDto } from './dto/login.dto';
+import { MailService } from '../mail/mail.service';
 
 export interface AuthenticatedUser {
   id: number;
@@ -44,6 +46,7 @@ export class AuthService {
     private readonly usersService: UsersService,
     private readonly configService: ConfigService,
     private readonly dataSource: DataSource,
+    @Optional() private readonly mail?: MailService,
   ) {}
 
   async validateUser(loginDto: LoginDto): Promise<AuthenticatedUser> {
@@ -133,10 +136,7 @@ export class AuthService {
     return { message: 'ออกจากระบบสำเร็จ' };
   }
 
-  async forgotPassword(email: string): Promise<{
-    message: string;
-    developmentResetUrl?: string;
-  }> {
+  async forgotPassword(email: string): Promise<{ message: string }> {
     const genericMessage =
       'หากอีเมลนี้อยู่ในระบบ ระบบจะส่งลิงก์ตั้งรหัสผ่านใหม่ให้';
     const users = this.readRows(
@@ -190,15 +190,7 @@ export class AuthService {
       );
       throw error;
     }
-    const result: { message: string; developmentResetUrl?: string } = {
-      message: genericMessage,
-    };
-    if (
-      (this.configService.get('NODE_ENV') ?? 'development') !== 'production'
-    ) {
-      result.developmentResetUrl = resetUrl;
-    }
-    return result;
+    return { message: genericMessage };
   }
 
   async resetPassword(
@@ -258,6 +250,7 @@ export class AuthService {
       id: user.id,
       username: user.username,
       email: user.email,
+      studentId: user.student_id,
       first_name: user.first_name,
       last_name: user.last_name,
       role: user.role,
@@ -290,7 +283,7 @@ export class AuthService {
     return `${unsignedToken}.${signature}`;
   }
 
-  private async issueLoginResult(
+  async issueLoginResult(
     user: AuthenticatedUser,
     executor: Pick<DataSource, 'query'> = this.dataSource,
   ): Promise<LoginResult> {
@@ -315,18 +308,21 @@ export class AuthService {
     email: string,
     resetUrl: string,
   ): Promise<void> {
+    if (this.mail?.configured()) {
+      await this.mail.send(
+        email,
+        'KINOF: ตั้งรหัสผ่านใหม่',
+        `เปิดลิงก์นี้เพื่อตั้งรหัสผ่านใหม่ (30 นาที ครั้งเดียว):\n${resetUrl}\nหากไม่ได้ขอ กรุณาไม่เปิดลิงก์`,
+      );
+      return;
+    }
     const webhookUrl = this.configService.get<string>(
       'PASSWORD_RESET_WEBHOOK_URL',
     );
-    const environment =
-      this.configService.get<string>('NODE_ENV') ?? 'development';
     if (!webhookUrl) {
-      if (environment === 'production') {
-        throw new ServiceUnavailableException(
-          'ยังไม่ได้ตั้งค่าระบบส่งอีเมลตั้งรหัสผ่าน',
-        );
-      }
-      return;
+      throw new ServiceUnavailableException(
+        'ยังไม่ได้ตั้งค่าระบบส่งอีเมลตั้งรหัสผ่าน',
+      );
     }
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',

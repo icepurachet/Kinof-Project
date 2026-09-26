@@ -8,7 +8,7 @@ function formatDate(value) {
   return new Intl.DateTimeFormat("th-TH", { dateStyle: "long" }).format(parseStoredDate(value));
 }
 
-export default function Invitation({ notify, onInvitationAccepted }) {
+export default function Invitation({ notify, onInvitationAccepted, onInvitationsChanged }) {
   const [invitations, setInvitations] = useState([]);
   const [selected, setSelected] = useState(null);
   const [declineTarget, setDeclineTarget] = useState(null);
@@ -16,15 +16,34 @@ export default function Invitation({ notify, onInvitationAccepted }) {
   const [requestError, setRequestError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  const loadInvitations = () => {
-    setLoading(true);
-    getMyInvitations()
-      .then(setInvitations)
-      .catch((error) => setRequestError(error.message))
-      .finally(() => setLoading(false));
-  };
+  useEffect(() => {
+    let active = true;
+    const loadInvitations = (silent = false) => {
+      if (!silent) setLoading(true);
+      getMyInvitations()
+        .then((rows) => {
+          if (!active) return;
+          setInvitations(rows);
+          setRequestError("");
+        })
+        .catch((error) => {
+          if (active) setRequestError(error.message);
+        })
+        .finally(() => {
+          if (active && !silent) setLoading(false);
+        });
+    };
 
-  useEffect(loadInvitations, []);
+    loadInvitations();
+    const timer = window.setInterval(() => loadInvitations(true), 5000);
+    const handleFocus = () => loadInvitations(true);
+    window.addEventListener("focus", handleFocus);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      window.removeEventListener("focus", handleFocus);
+    };
+  }, []);
 
   const handleAccept = async () => {
     if (!selected) return;
@@ -34,6 +53,7 @@ export default function Invitation({ notify, onInvitationAccepted }) {
       setInvitations((current) => current.filter((item) => item.id !== selected.id));
       setSelected(null);
       onInvitationAccepted?.(booking);
+      onInvitationsChanged?.();
       notify?.("ยืนยันการเข้าร่วมกลุ่มเรียบร้อยแล้ว");
     } catch (error) {
       notify?.(error.message);
@@ -49,6 +69,7 @@ export default function Invitation({ notify, onInvitationAccepted }) {
       await declineInvitation(declineTarget.id);
       setInvitations((current) => current.filter((item) => item.id !== declineTarget.id));
       setDeclineTarget(null);
+      onInvitationsChanged?.();
       notify?.("ปฏิเสธคำเชิญเรียบร้อยแล้ว");
     } catch (error) {
       notify?.(error.message);
@@ -79,7 +100,7 @@ export default function Invitation({ notify, onInvitationAccepted }) {
               <div>
                 <div className="flex items-center gap-2 text-sm font-semibold text-ink"><Users size={16} /> {item.inviter}</div>
                 <div className="text-xs text-slate-500 mt-2 flex items-center gap-2"><Calendar size={13} /> {formatDate(item.startTime)}</div>
-                <div className="text-xs text-slate-500 mt-1 flex items-center gap-2"><Clock size={13} /> {formatSlotLabel(item.startTime, item.endTime)} · {item.room}</div>
+                <div className="text-xs text-slate-500 mt-1 flex items-center gap-2"><Clock size={13} /> {formatSlotLabel(item.startTime, item.endTime)} · {item.room ?? "ผู้จองจะเลือกห้องหลังตอบรับครบ"}</div>
                 <div className="text-xs text-amber-700 mt-1">สถานะ: {item.status === "pending" ? "รอดำเนินการ" : item.status}</div>
               </div>
               <div className="flex gap-2">
@@ -95,7 +116,8 @@ export default function Invitation({ notify, onInvitationAccepted }) {
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" role="dialog" aria-modal="true">
           <Card className="w-full max-w-md p-6">
             <h2 className="text-lg font-semibold text-ink">ยืนยันการเข้าร่วมกลุ่ม</h2>
-            <p className="text-sm text-slate-600 mt-2">คุณต้องการเข้าร่วมกลุ่มของ {selected.inviter} เพื่อใช้ {selected.room} ในวันที่ {formatDate(selected.startTime)} เวลา {formatSlotLabel(selected.startTime, selected.endTime)} ใช่หรือไม่</p>
+            <p className="text-sm text-slate-600 mt-2">คุณต้องการเข้าร่วมกลุ่มของ {selected.inviter} ในวันที่ {formatDate(selected.startTime)} เวลา {formatSlotLabel(selected.startTime, selected.endTime)} ใช่หรือไม่</p>
+            {!selected.room && <p className="text-xs text-slate-500 mt-2">เมื่อสมาชิกตอบรับครบ ผู้จองหลักจึงจะค้นหาและเลือกห้อง</p>}
             <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3 mt-4">หลังยืนยัน คุณจะไม่สามารถจองห้องอื่นในวันและเวลาเดียวกันได้</p>
             <div className="flex justify-end gap-2 mt-5">
               <Button variant="secondary" onClick={() => setSelected(null)}>ยกเลิก</Button>
@@ -109,7 +131,7 @@ export default function Invitation({ notify, onInvitationAccepted }) {
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" role="dialog" aria-modal="true">
           <Card className="w-full max-w-md p-6">
             <h2 className="text-lg font-semibold text-ink">ยืนยันการปฏิเสธคำเชิญ</h2>
-            <p className="text-sm text-slate-600 mt-2">คุณต้องการปฏิเสธคำเชิญจาก {declineTarget.inviter} สำหรับ {declineTarget.room} ในวันที่ {formatDate(declineTarget.startTime)} เวลา {formatSlotLabel(declineTarget.startTime, declineTarget.endTime)} ใช่หรือไม่</p>
+            <p className="text-sm text-slate-600 mt-2">คุณต้องการปฏิเสธคำเชิญจาก {declineTarget.inviter} ในวันที่ {formatDate(declineTarget.startTime)} เวลา {formatSlotLabel(declineTarget.startTime, declineTarget.endTime)} ใช่หรือไม่</p>
             <p className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg p-3 mt-4">ผู้จองจะไม่สามารถยืนยันการจองได้จนกว่าสมาชิกทุกคนจะตอบรับ</p>
             <div className="flex justify-end gap-2 mt-5">
               <Button variant="secondary" onClick={() => setDeclineTarget(null)}>ยกเลิก</Button>

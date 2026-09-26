@@ -7,8 +7,8 @@ import { GOLD, NAVY } from "../theme";
 
 export default function ForgotPassword() {
   const [email, setEmail] = useState("");
+  const [account, setAccount] = useState("user");
   const [message, setMessage] = useState("");
-  const [developmentResetUrl, setDevelopmentResetUrl] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -16,12 +16,10 @@ export default function ForgotPassword() {
     event.preventDefault();
     setError("");
     setMessage("");
-    setDevelopmentResetUrl("");
     setLoading(true);
     try {
-      const result = await forgotPassword(email);
+      const result = await forgotPassword(email, account);
       setMessage(result.message);
-      setDevelopmentResetUrl(result.developmentResetUrl || "");
     } catch (requestError) {
       setError(requestError.message);
     } finally {
@@ -47,6 +45,7 @@ export default function ForgotPassword() {
         </div>
 
         <form onSubmit={handleSubmit}>
+          <label className="block text-xs text-gray-600 mb-3">ประเภทบัญชี<select value={account} onChange={event => setAccount(event.target.value)} className="w-full border rounded-lg p-2 mt-1"><option value="user">นักศึกษา / บุคคลภายนอก</option><option value="admin">ผู้ดูแล / Super Admin</option></select></label>
           <label className="text-xs text-gray-600">
             อีเมลที่ลงทะเบียน
             <input
@@ -59,11 +58,13 @@ export default function ForgotPassword() {
             />
           </label>
 
-          {message && <p className="text-xs text-green-700 bg-green-50 rounded-lg p-3 mt-4" role="status">{message}</p>}
-          {developmentResetUrl && (
-            <a href={developmentResetUrl} className="block text-xs text-blue-700 underline mt-3">
-              เปิดลิงก์ตั้งรหัสผ่านสำหรับโหมดพัฒนา
-            </a>
+          {message && (
+            <div className="text-xs text-green-700 bg-green-50 rounded-lg p-3 mt-4" role="status">
+              <p>{message}</p>
+              <p className="mt-1 text-green-800">
+                หากไม่พบอีเมล กรุณาตรวจกล่อง Spam/Junk และถังขยะด้วย
+              </p>
+            </div>
           )}
           {error && <p className="text-xs text-red-600 mt-4" role="alert">{error}</p>}
 

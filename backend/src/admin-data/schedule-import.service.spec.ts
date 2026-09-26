@@ -7,6 +7,27 @@ const HEADER =
   'term_name,term_start_date,term_end_date,subject_code,subject_name,section,class_type,instructor_name,day_of_week,start_time,end_time,room_name,user_id';
 
 describe('ScheduleImportService', () => {
+  it('สร้างและอ่าน Excel โดยจับคู่รหัสนักศึกษาจริงกับบัญชีที่เปิดใช้งาน', async () => {
+    const query = jest
+      .fn()
+      .mockResolvedValueOnce([{ id: 7, student_id: '6600000001' }])
+      .mockResolvedValueOnce([{ id: 1, room_name: 'LAB-1' }])
+      .mockResolvedValueOnce([
+        { id: 7, first_name: 'Student', last_name: 'Test' },
+      ])
+      .mockResolvedValueOnce([]);
+    const service = new ScheduleImportService({
+      query,
+    } as unknown as DataSource);
+    const workbook = await service.excelTemplate();
+    expect(workbook.subarray(0, 2).toString()).toBe('PK');
+    await expect(service.preview(workbook)).resolves.toMatchObject({
+      canConfirm: true,
+      enrollments: [{ studentId: '6600000001', status: 'linked' }],
+    });
+    expect(query.mock.calls[0][0]).toContain("role='student'");
+    expect(query.mock.calls[0][1]).toEqual(['6600000001']);
+  });
   it('สร้างแม่แบบ CSV ที่ Excel เปิดได้และมีหัวตารางครบ', () => {
     const service = new ScheduleImportService({} as DataSource);
     expect(service.template()).toMatch(/^\uFEFFterm_name,/);

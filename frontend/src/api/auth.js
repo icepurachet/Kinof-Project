@@ -167,26 +167,20 @@ export async function apiFetch(path, options = {}) {
 }
 
 export async function login(username, password, expectedRole) {
-  if (expectedRole === "admin") {
-    const result = await post("/auth/admin/login", { identifier: username, password });
-    return {
-      accessToken: result.access_token,
-      refreshToken: null,
-      user: { ...result.admin, userType: result.admin.role, faceEnrolled: true },
-    };
-  }
-  try {
-    const result = await post("/auth/login", { identifier: username, password });
-    return normalizeUserLogin(result);
-  } catch (error) {
-    if (error.status !== 401 || expectedRole === "user") throw error;
-    const result = await post("/auth/admin/login", { identifier: username, password });
-    return {
-      accessToken: result.access_token,
-      refreshToken: null,
-      user: { ...result.admin, userType: result.admin.role, faceEnrolled: true },
-    };
-  }
+  const result = await post(expectedRole === "admin" ? "/auth/admin/login" : "/auth/login", { identifier: username, password });
+  return { ...result, expectedRole: expectedRole ?? "user" };
+}
+
+export async function verifyEmailOtp(userId, code) {
+  const result = await post("/auth/verify-email-otp", { userId, code });
+  return result.admin ? {
+    accessToken: result.access_token, refreshToken: null,
+    user: { ...result.admin, userType: result.admin.role, faceEnrolled: true },
+  } : normalizeUserLogin(result);
+}
+
+export function resendEmailOtp(userId) {
+  return post("/auth/resend-email-otp", { userId });
 }
 
 function normalizeUserLogin(result) {
@@ -210,6 +204,7 @@ export function register(details) {
     last_name: details.lastName,
     phone: details.phone || undefined,
     role: details.userType,
+    ...(details.userType === 'student' ? { student_id: details.studentId } : {}),
   }).then(() => login(details.username, details.password, "user"));
 }
 
@@ -223,12 +218,12 @@ export function logout() {
   return post("/auth/logout", { refreshToken: auth.refreshToken });
 }
 
-export function forgotPassword(email) {
-  return post("/auth/forgot-password", { email });
+export function forgotPassword(email, account = "user") {
+  return post(account === "admin" ? "/auth/admin/forgot-password" : "/auth/forgot-password", { email });
 }
 
-export function resetPassword(token, newPassword) {
-  return post("/auth/reset-password", { token, newPassword });
+export function resetPassword(token, newPassword, account = "user") {
+  return post(account === "admin" ? "/auth/admin/reset-password" : "/auth/reset-password", { token, newPassword });
 }
 
 export function getMe() {

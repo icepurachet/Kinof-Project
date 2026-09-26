@@ -2,6 +2,8 @@ import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
 
 @Entity('users')
 export class User {
+  @Column({ type: 'varchar', length: 10, nullable: true, unique: true })
+  student_id: string | null;
   @PrimaryGeneratedColumn({ type: 'int' })
   id: number;
 

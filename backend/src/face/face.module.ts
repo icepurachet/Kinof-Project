@@ -6,9 +6,10 @@ import {
   KioskFaceController,
 } from './face.controller';
 import { FaceService } from './face.service';
+import { LabModule } from '../lab-features/lab.module';
 
 @Module({
-  imports: [AuthModule, EntryModule],
+  imports: [AuthModule, EntryModule, LabModule],
   controllers: [FaceEnrollmentController, KioskFaceController],
   providers: [FaceService],
 })

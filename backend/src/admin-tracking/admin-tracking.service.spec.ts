@@ -65,4 +65,71 @@ describe('AdminTrackingService', () => {
     expect(result.content).toContain('"Lab, 1"');
     expect(result.content.charCodeAt(0)).toBe(0xfeff);
   });
+
+  it('กรองกิจกรรมที่ backend และรวม login/logout ในแท็บ session', async () => {
+    const dataSource = { query: jest.fn().mockResolvedValue([]) };
+    const service = new AdminTrackingService(
+      dataSource as unknown as DataSource,
+    );
+
+    await service.activity({
+      room_id: 3,
+      date: '2026-09-26',
+      type: 'session',
+      limit: 50,
+    });
+
+    const [sql, parameters] = dataSource.query.mock.calls[0] as [
+      string,
+      unknown[],
+    ];
+    expect(sql).toContain('r.id = ?');
+    expect(sql).toContain("te.event_type IN ('login', 'logout')");
+    expect(sql).toContain(
+      "DATE(CONVERT_TZ(te.occurred_at, '+00:00', '+07:00')) = ?",
+    );
+    expect(parameters).toEqual([3, '2026-09-26', 50]);
+  });
+
+  it('ดึงกิจกรรมรายเครื่องผ่าน query เฉพาะเครื่อง', async () => {
+    const dataSource = {
+      query: jest
+        .fn()
+        .mockResolvedValueOnce([{ id: 7 }])
+        .mockResolvedValueOnce([{ id: 99, computer_id: 7 }]),
+    };
+    const service = new AdminTrackingService(
+      dataSource as unknown as DataSource,
+    );
+
+    await expect(service.computerActivity(7, 25)).resolves.toEqual([
+      { id: 99, computer_id: 7 },
+    ]);
+    expect(dataSource.query.mock.calls[1][0]).toContain('lc.id = ?');
+    expect(dataSource.query.mock.calls[1][1]).toEqual([7, 25]);
+  });
+
+  it('คืนจำนวนเครื่องและคำสั่ง logout เมื่อปิดทั้งห้อง', async () => {
+    const dataSource = {
+      query: jest
+        .fn()
+        .mockResolvedValueOnce([
+          { machine_count: '20', active_session_count: '3' },
+        ])
+        .mockResolvedValueOnce({ affectedRows: 1 })
+        .mockResolvedValueOnce({ affectedRows: 18 })
+        .mockResolvedValueOnce({ affectedRows: 1 }),
+    };
+    const service = new AdminTrackingService(
+      dataSource as unknown as DataSource,
+    );
+
+    await expect(service.bulkRoomAction(1, 2, 'close')).resolves.toEqual({
+      message: 'อัปเดตสถานะห้องสำเร็จ',
+      status: 'closed',
+      machine_count: 20,
+      active_session_count: 3,
+      logout_commands_queued: 18,
+    });
+  });
 });

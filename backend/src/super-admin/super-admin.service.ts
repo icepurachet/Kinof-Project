@@ -1,21 +1,26 @@
 import {
   ConflictException,
   Injectable,
+  Optional,
   NotFoundException,
 } from '@nestjs/common';
 import { hash } from 'bcrypt';
 import { DataSource } from 'typeorm';
 import { CreateAdminDto } from './dto/create-admin.dto';
 import { UpdateAdminDto } from './dto/update-admin.dto';
+import { AdminAccountService } from '../auth/admin-account.service';
 
 @Injectable()
 export class SuperAdminService {
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(
+    private readonly dataSource: DataSource,
+    @Optional() private readonly accounts?: AdminAccountService,
+  ) {}
 
   async findAdmins(): Promise<Array<Record<string, unknown>>> {
     return this.readRows(
       (await this.dataSource.query(`
-        SELECT id, email, first_name, last_name, role, status
+        SELECT id, email, first_name, last_name, role, status, username, job_title, phone, password_setup_required
         FROM admins
         ORDER BY id ASC
       `)) as unknown,
@@ -26,6 +31,10 @@ export class SuperAdminService {
     actorAdminId: number,
     dto: CreateAdminDto,
   ): Promise<{ id: number; email: string; role: string }> {
+    if (!dto.password) {
+      if (!this.accounts) throw new Error('ADMIN_INVITE_SERVICE_UNAVAILABLE');
+      return this.accounts.createInvite(actorAdminId, dto);
+    }
     const passwordHash = await hash(dto.password, 12);
     try {
       const result = (await this.dataSource.query(
@@ -76,7 +85,15 @@ export class SuperAdminService {
   ): Promise<{ message: string }> {
     const fields: string[] = [];
     const values: unknown[] = [];
-    for (const field of ['email', 'first_name', 'last_name', 'role'] as const) {
+    for (const field of [
+      'email',
+      'first_name',
+      'last_name',
+      'role',
+      'username',
+      'job_title',
+      'phone',
+    ] as const) {
       if (dto[field] !== undefined) {
         fields.push(`${field} = ?`);
         values.push(dto[field]);
@@ -85,6 +102,7 @@ export class SuperAdminService {
     if (dto.password !== undefined) {
       fields.push('password_hash = ?');
       values.push(await hash(dto.password, 12));
+      fields.push('password_setup_required = 0');
     }
     if (fields.length === 0) {
       return { message: 'ไม่มีข้อมูลเปลี่ยนแปลง' };

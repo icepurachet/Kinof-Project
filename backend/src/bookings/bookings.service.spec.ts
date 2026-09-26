@@ -51,9 +51,6 @@ describe('BookingsService', () => {
       .fn()
       .mockResolvedValueOnce([{ id: 8 }, { id: 9 }])
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([{ id: 3, room_name: 'LAB-C', capacity: 20 }])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([{ used_seats: '5' }])
       .mockResolvedValueOnce({ insertId: 43 })
       .mockResolvedValueOnce({ affectedRows: 2 });
     const queryRunner = {
@@ -73,7 +70,6 @@ describe('BookingsService', () => {
       service.createGroupBooking(7, {
         booking_date: '2026-09-12',
         time_slot: '09:00-11:30',
-        room_id: 3,
         member_ids: [8, 9],
       }),
     ).resolves.toEqual({
@@ -83,12 +79,17 @@ describe('BookingsService', () => {
       reserved_seats: 3,
       status: 'pending',
       expires_in_seconds: 300,
-      room: { id: 3, room_name: 'LAB-C' },
+      room: null,
       members: [
         { user_id: 8, invite_status: 'pending' },
         { user_id: 9, invite_status: 'pending' },
       ],
     });
+    expect(query).toHaveBeenNthCalledWith(
+      3,
+      expect.stringContaining('?, NULL)'),
+      ['2026-09-12', '09:00-11:30', 3, 7],
+    );
     expect(queryRunner.commitTransaction).toHaveBeenCalledTimes(1);
     expect(queryRunner.rollbackTransaction).not.toHaveBeenCalled();
     expect(queryRunner.release).toHaveBeenCalledTimes(1);
@@ -131,7 +132,7 @@ describe('BookingsService', () => {
     );
   });
 
-  it('ตอบรับคำเชิญและอนุญาตค้นหาห้องเมื่อทุกคนตอบครบ', async () => {
+  it('ตอบรับคำเชิญและยังรอให้ผู้จองหลักยืนยัน', async () => {
     const query = jest
       .fn()
       .mockResolvedValueOnce([
@@ -171,13 +172,27 @@ describe('BookingsService', () => {
       booking_id: 11,
       invitation_id: 5,
       invite_status: 'accepted',
-      booking_status: 'confirmed',
+      booking_status: 'pending',
       can_search_room: false,
       booking_date: '2026-09-12',
       time_slot: '09:00-11:30',
       reserved_seats: 3,
       room: { id: 3, room_name: 'LAB-C' },
     });
+    expect(query).toHaveBeenNthCalledWith(
+      1,
+      expect.stringContaining(
+        "DATE_FORMAT(b.booking_date, '%Y-%m-%d') AS booking_date",
+      ),
+      [5, 8],
+    );
+    expect(query).toHaveBeenNthCalledWith(
+      5,
+      expect.stringContaining(
+        'SET expires_at = DATE_ADD(NOW(), INTERVAL 5 MINUTE)',
+      ),
+      [11],
+    );
     expect(queryRunner.commitTransaction).toHaveBeenCalledTimes(1);
     expect(queryRunner.rollbackTransaction).not.toHaveBeenCalled();
     expect(queryRunner.release).toHaveBeenCalledTimes(1);

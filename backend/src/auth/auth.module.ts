@@ -7,17 +7,34 @@ import { AdminAuthController } from './admin-auth.controller';
 import { AdminAuthService } from './admin-auth.service';
 import { AdminJwtAuthGuard } from './admin-jwt-auth.guard';
 import { SuperAdminGuard } from './super-admin.guard';
+import { LoginOtpService } from './login-otp.service';
+import { LoginOtpController } from './login-otp.controller';
+import { AdminAccountService } from './admin-account.service';
+import { AdminAccountController } from './admin-account.controller';
 
 @Module({
   imports: [forwardRef(() => UsersModule)],
-  controllers: [AuthController, AdminAuthController],
+  controllers: [
+    AuthController,
+    AdminAuthController,
+    LoginOtpController,
+    AdminAccountController,
+  ],
   providers: [
+    LoginOtpService,
+    AdminAccountService,
     AuthService,
     JwtAuthGuard,
     AdminAuthService,
     AdminJwtAuthGuard,
     SuperAdminGuard,
   ],
-  exports: [AuthService, JwtAuthGuard, AdminJwtAuthGuard, SuperAdminGuard],
+  exports: [
+    AuthService,
+    JwtAuthGuard,
+    AdminJwtAuthGuard,
+    SuperAdminGuard,
+    AdminAccountService,
+  ],
 })
 export class AuthModule {}

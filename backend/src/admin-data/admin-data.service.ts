@@ -172,7 +172,7 @@ export class AdminDataService {
     const enrollments = await this.queryRows(
       `
         SELECT se.id, se.user_id, se.status, se.enrolled_at,
-               u.username, u.first_name, u.last_name, u.email
+               u.username, u.first_name, u.last_name, u.email, u.student_id
         FROM subject_enrollments AS se
         INNER JOIN users AS u ON u.id = se.user_id
         WHERE se.subject_id = ?
@@ -244,18 +244,28 @@ export class AdminDataService {
     subjectId: number,
     dto: AddEnrollmentDto,
   ) {
+    let userId = dto.user_id;
+    if (dto.student_id) {
+      const students = await this.queryRows(
+        "SELECT id FROM users WHERE student_id=? AND role='student' AND is_active=1",
+        [dto.student_id],
+      );
+      if (!students[0])
+        throw new NotFoundException('ไม่พบรหัสนักศึกษาที่เปิดใช้งาน');
+      if (userId && userId !== Number(students[0].id))
+        throw new BadRequestException('ข้อมูลนักศึกษาไม่ตรงกัน');
+      userId = Number(students[0].id);
+    }
+    if (!userId) throw new BadRequestException('กรุณาระบุรหัสนักศึกษา');
     await this.dataSource.query(
       `
         INSERT INTO subject_enrollments (subject_id, user_id, status)
         VALUES (?, ?, 'active')
         ON DUPLICATE KEY UPDATE status = 'active', enrolled_at = NOW()
       `,
-      [subjectId, dto.user_id],
+      [subjectId, userId],
     );
-    await this.audit(
-      adminId,
-      `เพิ่มผู้ใช้ #${dto.user_id} ในรายวิชา #${subjectId}`,
-    );
+    await this.audit(adminId, `เพิ่มผู้ใช้ #${userId} ในรายวิชา #${subjectId}`);
     return this.findSubject(subjectId);
   }
 

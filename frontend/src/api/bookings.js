@@ -28,10 +28,13 @@ export async function createBooking({ roomId, startTime, endTime, inviteeUserIds
   const body = {
     booking_date: formatApiDate(startTime),
     time_slot: rangeToTimeSlot(startTime, endTime),
-    room_id: Number(roomId),
   };
   const path = inviteeUserIds.length > 0 ? "/bookings/group" : "/bookings/solo";
-  if (inviteeUserIds.length > 0) body.member_ids = inviteeUserIds.map(Number);
+  if (inviteeUserIds.length > 0) {
+    body.member_ids = inviteeUserIds.map(Number);
+  } else {
+    body.room_id = Number(roomId);
+  }
   const booking = await apiFetch(path, {
     method: "POST",
     body: JSON.stringify(body),
@@ -97,7 +100,7 @@ export async function getMyInvitations() {
       inviter: row.host?.username ?? "ผู้ใช้",
       startTime: range.start.toISOString(),
       endTime: range.end.toISOString(),
-      room: row.room?.room_name ?? "รอเลือกห้อง",
+      room: row.room?.room_name ?? null,
       status: row.invite_status,
       expiresAt: row.expires_at,
     };
@@ -209,4 +212,7 @@ export function parseStoredDate(dateValue) {
 export function formatSlotLabel(startTime, endTime) {
   const fmt = new Intl.DateTimeFormat("th-TH", { hour: "2-digit", minute: "2-digit" });
   return `${fmt.format(parseStoredDate(startTime))} - ${fmt.format(parseStoredDate(endTime))}`;
+}
+export async function checkBookingEligibility(memberIds = []) {
+  return apiFetch('/bookings/eligibility', { method: 'POST', body: JSON.stringify({ member_ids: memberIds.map(Number) }) });
 }

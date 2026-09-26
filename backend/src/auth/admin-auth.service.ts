@@ -25,15 +25,27 @@ export class AdminAuthService {
   ) {}
 
   async login(loginDto: LoginDto): Promise<AdminLoginResult> {
+    const admin = await this.validateAdmin(loginDto);
+    return {
+      access_token: this.authService.issueAccessToken({
+        id: admin.id,
+        username: admin.email,
+        role: admin.role,
+      }),
+      admin,
+    };
+  }
+
+  async validateAdmin(loginDto: LoginDto): Promise<AuthenticatedAdmin> {
     const rows = this.readRows(
       (await this.dataSource.query(
         `
-          SELECT id, email, first_name, last_name, password_hash, role, status
+          SELECT id, email, first_name, last_name, password_hash, role, status, password_setup_required
           FROM admins
-          WHERE email = ?
+          WHERE email = ? OR username = ?
           LIMIT 1
         `,
-        [loginDto.identifier],
+        [loginDto.identifier, loginDto.identifier],
       )) as unknown,
     );
     const row = rows[0];
@@ -41,6 +53,7 @@ export class AdminAuthService {
     if (
       !row ||
       row.status !== 'active' ||
+      Number(row.password_setup_required ?? 0) === 1 ||
       typeof passwordHash !== 'string' ||
       !(await compare(loginDto.password, passwordHash))
     ) {
@@ -59,14 +72,7 @@ export class AdminAuthService {
       last_name: String(row.last_name),
       role,
     };
-    return {
-      access_token: this.authService.issueAccessToken({
-        id: admin.id,
-        username: admin.email,
-        role: admin.role,
-      }),
-      admin,
-    };
+    return admin;
   }
 
   async me(adminId: number): Promise<AuthenticatedAdmin> {

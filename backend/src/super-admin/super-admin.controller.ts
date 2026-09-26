@@ -18,11 +18,23 @@ import { CreateAdminDto } from './dto/create-admin.dto';
 import { UpdateAdminStatusDto } from './dto/update-admin-status.dto';
 import { UpdateAdminDto } from './dto/update-admin.dto';
 import { SuperAdminService } from './super-admin.service';
+import { AdminAccountService } from '../auth/admin-account.service';
 
 @Controller('super-admin')
 @UseGuards(AdminJwtAuthGuard, SuperAdminGuard)
 export class SuperAdminController {
-  constructor(private readonly superAdminService: SuperAdminService) {}
+  constructor(
+    private readonly superAdminService: SuperAdminService,
+    private readonly accounts: AdminAccountService,
+  ) {}
+
+  @Post('admins/:adminId/resend-invite')
+  resendInvite(
+    @Req() request: AdminAuthenticatedRequest,
+    @Param('adminId', ParseIntPipe) id: number,
+  ) {
+    return this.accounts.resendInvite(request.admin.sub, id);
+  }
 
   @Get('admins')
   findAdmins(): Promise<Array<Record<string, unknown>>> {

@@ -8,6 +8,7 @@ import { DataSource } from 'typeorm';
 import { CreateAgentDto } from './dto/create-agent.dto';
 import { ExportTrackingDto } from './dto/export-tracking.dto';
 import { QueueCommandDto } from './dto/queue-command.dto';
+import { TrackingActivityQueryDto } from './dto/tracking-activity-query.dto';
 
 @Injectable()
 export class AdminTrackingService {
@@ -124,8 +125,67 @@ export class AdminTrackingService {
     );
   }
 
-  async activity(limit = 500): Promise<Array<Record<string, unknown>>> {
-    const safeLimit = Math.min(Math.max(limit, 1), 500);
+  async activity(
+    query: TrackingActivityQueryDto = {},
+  ): Promise<Array<Record<string, unknown>>> {
+    return this.queryActivity({
+      roomId: query.room_id,
+      date: query.date,
+      type: query.type,
+      limit: query.limit ?? 500,
+    });
+  }
+
+  async computerActivity(
+    computerId: number,
+    limit = 50,
+  ): Promise<Array<Record<string, unknown>>> {
+    const computers = this.readRows(
+      (await this.dataSource.query(
+        'SELECT id FROM lab_computers WHERE id = ? LIMIT 1',
+        [computerId],
+      )) as unknown,
+    );
+    if (!computers[0]) {
+      throw new NotFoundException('ไม่พบเครื่องคอมพิวเตอร์');
+    }
+    return this.queryActivity({ computerId, limit });
+  }
+
+  private async queryActivity(filters: {
+    roomId?: number;
+    computerId?: number;
+    date?: string;
+    type?: string;
+    limit: number;
+  }): Promise<Array<Record<string, unknown>>> {
+    const conditions: string[] = [];
+    const parameters: unknown[] = [];
+    if (filters.roomId) {
+      conditions.push('r.id = ?');
+      parameters.push(filters.roomId);
+    }
+    if (filters.computerId) {
+      conditions.push('lc.id = ?');
+      parameters.push(filters.computerId);
+    }
+    if (filters.date) {
+      conditions.push(
+        "DATE(CONVERT_TZ(te.occurred_at, '+00:00', '+07:00')) = ?",
+      );
+      parameters.push(filters.date);
+    }
+    if (filters.type === 'flagged') {
+      conditions.push("te.risk_level <> 'none'");
+    } else if (filters.type === 'session') {
+      conditions.push("te.event_type IN ('login', 'logout')");
+    } else if (filters.type) {
+      conditions.push('te.event_type = ?');
+      parameters.push(filters.type);
+    }
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const safeLimit = Math.min(Math.max(filters.limit, 1), 500);
+    parameters.push(safeLimit);
     return this.readRows(
       (await this.dataSource.query(
         `
@@ -140,10 +200,11 @@ export class AdminTrackingService {
           INNER JOIN rooms AS r ON r.id = lc.room_id
           LEFT JOIN pc_sessions AS ps ON ps.id = te.session_id
           LEFT JOIN users AS u ON u.id = ps.user_id
+          ${where}
           ORDER BY te.occurred_at DESC, te.id DESC
           LIMIT ?
         `,
-        [safeLimit],
+        parameters,
       )) as unknown,
     );
   }
@@ -351,16 +412,38 @@ export class AdminTrackingService {
     adminId: number,
     roomId: number,
     status: 'active' | 'closed' | 'maintenance',
-  ): Promise<{ message: string }> {
-    const result = (await this.dataSource.query(
-      'UPDATE rooms SET status = ? WHERE id = ?',
-      [status, roomId],
-    )) as unknown;
-    if (this.readAffectedRows(result) === 0) {
+  ): Promise<{
+    message: string;
+    status: 'active' | 'closed' | 'maintenance';
+    machine_count: number;
+    active_session_count: number;
+    logout_commands_queued: number;
+  }> {
+    const counts = this.readRows(
+      (await this.dataSource.query(
+        `
+          SELECT COUNT(lc.id) AS machine_count,
+                 COUNT(DISTINCT ps.id) AS active_session_count
+          FROM rooms AS r
+          LEFT JOIN lab_computers AS lc ON lc.room_id = r.id
+          LEFT JOIN pc_sessions AS ps
+            ON ps.computer_id = lc.id AND ps.status = 'online'
+          WHERE r.id = ?
+          GROUP BY r.id
+        `,
+        [roomId],
+      )) as unknown,
+    );
+    if (!counts[0]) {
       throw new NotFoundException('ไม่พบห้องแล็บ');
     }
+    await this.dataSource.query('UPDATE rooms SET status = ? WHERE id = ?', [
+      status,
+      roomId,
+    ]);
+    let logoutCommandsQueued = 0;
     if (status !== 'active') {
-      await this.dataSource.query(
+      const commandResult = (await this.dataSource.query(
         `
           INSERT INTO agent_commands (agent_id, command_type, payload_json)
           SELECT ta.id, 'logout', JSON_OBJECT('source', 'room_status')
@@ -369,10 +452,31 @@ export class AdminTrackingService {
           WHERE lc.room_id = ? AND ta.is_enabled = 1
         `,
         [roomId],
-      );
+      )) as unknown;
+      logoutCommandsQueued = this.readAffectedRows(commandResult);
     }
     await this.audit(adminId, `เปลี่ยนสถานะห้อง #${roomId} เป็น ${status}`);
-    return { message: 'อัปเดตสถานะห้องสำเร็จ' };
+    return {
+      message: 'อัปเดตสถานะห้องสำเร็จ',
+      status,
+      machine_count: Number(counts[0].machine_count ?? 0),
+      active_session_count: Number(counts[0].active_session_count ?? 0),
+      logout_commands_queued: logoutCommandsQueued,
+    };
+  }
+
+  bulkRoomAction(
+    adminId: number,
+    roomId: number,
+    action: 'open' | 'close' | 'maintenance',
+  ) {
+    const status =
+      action === 'open'
+        ? 'active'
+        : action === 'close'
+          ? 'closed'
+          : 'maintenance';
+    return this.updateRoomStatus(adminId, roomId, status);
   }
 
   private async audit(adminId: number, action: string): Promise<void> {

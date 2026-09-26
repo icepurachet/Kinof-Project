@@ -89,7 +89,10 @@ export class FaceService {
       };
     }
 
-    const access = await this.entryService.enterRoom(best.candidate.id, roomId);
+    const access = await this.entryService.authorizeDoor(
+      best.candidate.id,
+      roomId,
+    );
     await this.logVerification(
       best.candidate.id,
       roomId,

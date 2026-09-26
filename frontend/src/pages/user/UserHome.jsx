@@ -6,8 +6,34 @@ import Button from "../../components/Button";
 import { TEAL } from "../../theme";
 import { getDisplayName } from "../../utils/displayName";
 
+const BOOKING_STATUS = {
+  confirmed: { label: "ยืนยันแล้ว", tone: "green" },
+  pending: { label: "รอสมาชิกตอบรับ", tone: "amber" },
+  expired: { label: "หมดอายุ", tone: "gray" },
+  cancelled: { label: "ยกเลิกแล้ว", tone: "red" },
+};
+
+function getBookingStatus(status) {
+  return BOOKING_STATUS[status] ?? { label: status || "ไม่ทราบสถานะ", tone: "gray" };
+}
+
+function getBookingRoom(booking) {
+  if (booking.roomId) return booking.room;
+  return booking.status === "pending" ? "ยังไม่ได้เลือกห้อง" : "—";
+}
+
 export default function UserHome({ setPage, myBookings = [], auth }) {
-  const latest = myBookings.length > 0 ? myBookings[0] : null;
+  const now = Date.now();
+  const confirmedBookings = myBookings.filter((booking) => booking.status === "confirmed");
+  const live = confirmedBookings.find((booking) => {
+    const start = new Date(booking.startTime).getTime();
+    const end = new Date(booking.endTime).getTime();
+    return start <= now && now < end;
+  });
+  const upcoming = [...confirmedBookings]
+    .filter((booking) => new Date(booking.endTime).getTime() > now)
+    .sort((a, b) => new Date(a.startTime) - new Date(b.startTime))[0];
+  const featured = live ?? upcoming;
   const displayName = getDisplayName(auth?.user);
 
   return (
@@ -73,21 +99,21 @@ export default function UserHome({ setPage, myBookings = [], auth }) {
               <div className="w-6 h-6 rounded-lg bg-navy-50 text-navy-800 flex items-center justify-center">
                 <Calendar size={14} />
               </div>
-              <span>การจองปัจจุบันของคุณ</span>
+              <span>{live ? "รอบที่กำลังใช้งานได้ตอนนี้" : "การจองถัดไปของคุณ"}</span>
             </div>
 
             <div className="font-bold text-ink text-base md:text-lg mt-1">
-              {latest ? latest.room : "ยังไม่มีรายการจองที่กำลังจะถึง"}
+              {featured ? featured.room : "ยังไม่มีรายการจองที่กำลังจะถึง"}
             </div>
 
-            {latest ? (
+            {featured ? (
               <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-600">
                 <span className="bg-slate-100 text-slate-700 px-2.5 py-1 rounded-lg font-medium border border-slate-200/60">
-                  {latest.date}
+                  {featured.date}
                 </span>
                 <span className="text-slate-300">•</span>
                 <span className="flex items-center gap-1.5 text-slate-600 bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-200/50">
-                  <Clock size={13} className="text-slate-400" /> {latest.slot}
+                  <Clock size={13} className="text-slate-400" /> {featured.slot}
                 </span>
               </div>
             ) : (
@@ -96,11 +122,13 @@ export default function UserHome({ setPage, myBookings = [], auth }) {
           </div>
 
           <div className="mt-5 pt-3.5 border-t border-slate-100 flex items-center justify-between">
-            {latest ? (
+            {live ? (
               <div className="flex items-center gap-1.5 text-xs text-emerald-600 font-medium">
                 <CheckCircle2 size={15} />
-                <span>สถานะ: พร้อมเข้าใช้งาน</span>
+                <span>สถานะ: พร้อมเข้าใช้งานที่ Kiosk ตอนนี้</span>
               </div>
+            ) : featured ? (
+              <span className="text-caption">ยังไม่ถึงเวลารอบนี้ — สแกนหน้าที่ประตูได้เมื่อถึงช่วงที่จอง</span>
             ) : (
               <span className="text-caption">สถานะ: ไม่มีรอบที่รอดำเนินการ</span>
             )}
@@ -168,16 +196,19 @@ export default function UserHome({ setPage, myBookings = [], auth }) {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-slate-700">
-                  {myBookings.map((b, i) => (
-                    <tr key={b.id || i} className="hover:bg-slate-50/60 transition-colors">
-                      <td className="py-3.5 px-5 font-medium text-ink">{b.date}</td>
-                      <td className="py-3.5 px-5 text-slate-600">{b.slot}</td>
-                      <td className="py-3.5 px-5 font-medium text-slate-800">{b.room}</td>
-                      <td className="py-3.5 px-5 text-center">
-                        <Pill tone="green" withDot>ยืนยันแล้ว</Pill>
-                      </td>
-                    </tr>
-                  ))}
+                  {myBookings.map((b, i) => {
+                    const status = getBookingStatus(b.status);
+                    return (
+                      <tr key={b.id || i} className="hover:bg-slate-50/60 transition-colors">
+                        <td className="py-3.5 px-5 font-medium text-ink">{b.date}</td>
+                        <td className="py-3.5 px-5 text-slate-600">{b.slot}</td>
+                        <td className="py-3.5 px-5 font-medium text-slate-800">{getBookingRoom(b)}</td>
+                        <td className="py-3.5 px-5 text-center">
+                          <Pill tone={status.tone} withDot>{status.label}</Pill>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

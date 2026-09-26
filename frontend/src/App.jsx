@@ -20,6 +20,7 @@ import Sidebar from "./components/Sidebar";
 import TopBar from "./components/TopBar";
 import Toast from "./components/Toast";
 import Login from "./pages/Login";
+import OtpVerify from "./pages/OtpVerify";
 import Register from "./pages/Register";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
@@ -63,6 +64,7 @@ import {
 import { BG_APP } from "./theme";
 import { getDisplayName } from "./utils/displayName";
 import { isStaffAdmin, isSuperAdmin } from "./utils/roles";
+import { getNavBadges } from "./api/nav";
 
 const USER_NAV = [
   { key: "home", label: "หน้าหลัก", icon: Home },
@@ -86,9 +88,15 @@ export default function App() {
   const navigate = useNavigate();
   const location = useLocation();
   const [auth, setAuth] = useState(() => readStoredAuth());
+  const [pendingLogin, setPendingLogin] = useState(() => {
+    try { return JSON.parse(sessionStorage.getItem("kinofPendingLogin") || "null"); } catch { return null; }
+  });
   const [bootstrapping, setBootstrapping] = useState(() => Boolean(readStoredAuth()));
   const role = isStaffAdmin(auth?.user?.userType) ? "admin" : "user";
-  const [page, setPage] = useState(() => (role === "admin" ? "dashboard" : "home"));
+  const [page, setPage] = useState(() => {
+    if (role === "admin") return sessionStorage.getItem("kinofAdminPage") || "dashboard";
+    return "home";
+  });
   const [toast, setToast] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [trackingNav, setTrackingNav] = useState(null);
@@ -96,10 +104,18 @@ export default function App() {
 
   const [myBookings, setMyBookings] = useState([]);
   const [problemReports, setProblemReports] = useState([]);
+  const [navBadges, setNavBadges] = useState({ invite: 0, monitor: 0, helpcenter: 0 });
+  const [badgeTick, setBadgeTick] = useState(0);
   const tabSessionIdRef = useRef(auth?.sessionId ?? getTabSessionId());
+  const pendingLoginRef = useRef(pendingLogin);
 
   useEffect(() => {
     let active = true;
+    if (pendingLoginRef.current) {
+      setAuth(null);
+      setBootstrapping(false);
+      return () => { active = false; };
+    }
     const storedAuth = readStoredAuth();
     if (!storedAuth?.accessToken && !storedAuth?.refreshToken) {
       clearStoredAuth();
@@ -112,7 +128,7 @@ export default function App() {
 
     getMe()
       .then((user) => {
-        if (!active) return;
+        if (!active || pendingLoginRef.current) return;
         const currentAuth = readStoredAuth() ?? peekStoredAuth();
         if (!currentAuth?.accessToken) {
           throw new Error("เซสชันหมดอายุ");
@@ -121,7 +137,7 @@ export default function App() {
         setAuth(nextAuth);
         tabSessionIdRef.current = nextAuth.sessionId;
         if (isStaffAdmin(user.userType)) {
-          setPage("dashboard");
+          setPage(sessionStorage.getItem("kinofAdminPage") || "dashboard");
         }
       })
       .catch(() => {
@@ -152,6 +168,7 @@ export default function App() {
     };
 
     const syncLocalAuth = () => {
+      if (pendingLoginRef.current) return;
       const nextAuth = readStoredAuth();
       setAuth(nextAuth);
       setSidebarOpen(false);
@@ -159,6 +176,7 @@ export default function App() {
     };
 
     const syncAuthAcrossTabs = (event) => {
+      if (pendingLoginRef.current) return;
       if (event.key !== "kinofSessionId" && event.key !== "kinofAuth") return;
       const nextSessionId = event.key === "kinofSessionId"
         ? event.newValue
@@ -194,13 +212,18 @@ export default function App() {
   useEffect(() => {
     setPage(role === "admin" ? "dashboard" : "home");
     setTrackingNav(null);
+    setMyBookings([]);
+    setProblemReports([]);
+    setNavBadges({ invite: 0, monitor: 0, helpcenter: 0 });
   }, [auth?.user?.id, role]);
 
   useEffect(() => {
     if (bootstrapping || !auth?.accessToken || role !== "user") return;
     getMyBookings()
       .then((rows) => setMyBookings(rows.map(mapBookingRow)))
-      .catch(() => {});
+      .catch((error) => {
+        setToast(error.message || "โหลดรายการจองไม่สำเร็จ กรุณาลองใหม่");
+      });
   }, [auth?.accessToken, bootstrapping, role]);
 
   useEffect(() => {
@@ -215,7 +238,57 @@ export default function App() {
     load().then(setProblemReports).catch(() => setProblemReports([]));
   }, [auth?.accessToken, bootstrapping, role]);
 
+  useEffect(() => {
+    if (bootstrapping || !auth?.accessToken) return undefined;
+    let active = true;
+    const load = () => {
+      getNavBadges()
+        .then((data) => {
+          if (!active) return;
+          setNavBadges({
+            invite: Number(data.invite) || 0,
+            monitor: Number(data.monitor) || 0,
+            helpcenter: Number(data.helpcenter) || 0,
+          });
+        })
+        .catch(() => {
+          if (active) setNavBadges({ invite: 0, monitor: 0, helpcenter: 0 });
+        });
+    };
+    load();
+    const timer = window.setInterval(load, 30000);
+    window.addEventListener("focus", load);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      window.removeEventListener("focus", load);
+    };
+  }, [auth?.accessToken, bootstrapping, role, page, badgeTick]);
+
+  const withBadges = (items) => items.map((item) => ({
+    ...item,
+    badge: navBadges[item.key] || 0,
+  }));
+
+  const handleOtpRequired = (result) => {
+    pendingLoginRef.current = result;
+    tabSessionIdRef.current = null;
+    clearStoredAuth();
+    setAuth(null);
+    setPendingLogin(result);
+    sessionStorage.setItem("kinofPendingLogin", JSON.stringify(result));
+    navigate("/login/otp");
+  };
+  const handleCancelPendingLogin = () => {
+    pendingLoginRef.current = null;
+    setPendingLogin(null);
+    sessionStorage.removeItem("kinofPendingLogin");
+    navigate("/login");
+  };
   const handleVerified = (result) => {
+    pendingLoginRef.current = null;
+    setPendingLogin(null);
+    sessionStorage.removeItem("kinofPendingLogin");
     const nextAuth = beginBrowserSession({
       accessToken: result.accessToken,
       refreshToken: result.refreshToken,
@@ -241,8 +314,12 @@ export default function App() {
     logout().catch(() => {});
     clearStoredAuth();
     tabSessionIdRef.current = null;
+    sessionStorage.removeItem("kinofPendingLogin");
+    sessionStorage.removeItem("kinofAdminPage");
+    sessionStorage.removeItem("kinofMonitorTab");
     setAuth(null);
     setSidebarOpen(false);
+    setNavBadges({ invite: 0, monitor: 0, helpcenter: 0 });
     navigate("/login");
   };
 
@@ -256,24 +333,27 @@ export default function App() {
     }
     if (nextPage === "tracking") setTrackingNav(null);
     setPage(nextPage);
+    if (role === "admin") sessionStorage.setItem("kinofAdminPage", nextPage);
   };
 
   const openTrackingRoom = (roomId) => {
     setTrackingNav({ roomId });
     setPage("tracking");
+    sessionStorage.setItem("kinofAdminPage", "tracking");
   };
 
   const openTrackingSeat = ({ roomId, seatId }) => {
     setTrackingNav({ roomId, seatId });
     setPage("tracking");
+    sessionStorage.setItem("kinofAdminPage", "tracking");
   };
 
   const appShell = (
-    <div className="flex min-h-screen w-full" style={{ background: BG_APP }}>
+    <div className="flex h-screen w-full overflow-hidden" style={{ background: BG_APP }}>
       <Sidebar
         items={role === "admin"
-          ? [...ADMIN_NAV, ...(isSuperAdmin(auth?.user?.userType) ? [{ key: "audit", label: "Log แอดมิน", icon: ScrollText }] : [])]
-          : USER_NAV}
+          ? withBadges([...ADMIN_NAV, ...(isSuperAdmin(auth?.user?.userType) ? [{ key: "audit", label: "Log แอดมิน", icon: ScrollText }] : [])])
+          : withBadges(USER_NAV)}
         page={page}
         setPage={handleSetPage}
         roleLabel={role === "admin" ? "ระบบดูแลและจองห้องแล็บ" : "ระบบจองห้องแล็บ"}
@@ -282,7 +362,7 @@ export default function App() {
         onClose={() => setSidebarOpen(false)}
       />
 
-      <div className="flex-1 p-4 md:p-8 w-full min-w-0">
+      <div className="flex-1 p-4 md:p-8 w-full min-w-0 h-full overflow-y-auto">
         <TopBar name={getDisplayName(auth?.user)} onMenuClick={() => setSidebarOpen(true)} />
 
         {role === "user" && page === "home" && (
@@ -290,6 +370,7 @@ export default function App() {
         )}
         {role === "user" && page === "book" && (
           <BookRoom
+            key={`book-${auth?.user?.id}`}
             existingBookings={myBookings}
             onBookingCreated={(booking) => (
               setMyBookings((current) => [mapBookingRow(booking), ...current])
@@ -301,10 +382,12 @@ export default function App() {
         )}
         {role === "user" && page === "invite" && (
           <Invitation
+            key={`invite-${auth?.user?.id}`}
             notify={notify}
             onInvitationAccepted={(booking) => (
               setMyBookings((current) => [mapBookingRow(booking), ...current])
             )}
+            onInvitationsChanged={() => setBadgeTick((n) => n + 1)}
           />
         )}
         {role === "user" && page === "entry-otp" && (
@@ -332,13 +415,14 @@ export default function App() {
             notify={notify}
             initialRoomId={trackingNav?.roomId}
             initialSeatId={trackingNav?.seatId}
-            onOpenMonitor={() => setPage("monitor")}
+            onOpenMonitor={() => handleSetPage("monitor")}
           />
         )}
         {role === "admin" && page === "monitor" && (
           <AdminMonitor
             notify={notify}
             onOpenTrackingSeat={openTrackingSeat}
+            onBadgesChanged={() => setBadgeTick((n) => n + 1)}
           />
         )}
         {role === "admin" && page === "export" && <AdminExport notify={notify} />}
@@ -351,6 +435,7 @@ export default function App() {
             problemReports={problemReports}
             setProblemReports={setProblemReports}
             notify={notify}
+            onBadgesChanged={() => setBadgeTick((n) => n + 1)}
           />
         )}
       </div>
@@ -374,14 +459,15 @@ export default function App() {
 
   return (
     <Routes>
+      <Route path="/login/otp" element={auth ? <Navigate to="/" replace /> : pendingLogin ? <OtpVerify pendingLogin={pendingLogin} onVerified={handleVerified} onBack={handleCancelPendingLogin} /> : <Navigate to="/login" replace />} />
       <Route path="/kiosk/:roomId" element={<KioskEntry />} />
       <Route
         path="/login"
-        element={auth ? <Navigate to="/" replace /> : <Login onAuthenticated={handleVerified} />}
+        element={auth ? <Navigate to="/" replace /> : <Login onOtpRequired={handleOtpRequired} />}
       />
       <Route
         path="/register"
-        element={auth ? <Navigate to="/" replace /> : <Register onAuthenticated={handleVerified} />}
+        element={auth ? <Navigate to="/" replace /> : <Register onOtpRequired={handleOtpRequired} />}
       />
       <Route
         path="/forgot-password"

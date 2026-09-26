@@ -1,0 +1,73 @@
+KINOF2 หลังนำหน้าล่าสุดของเพื่อนมาเชื่อม Backend เดิม
+
+โปรเจกต์: C:\Users\User\OneDrive\Desktop\kinof2
+Backend ที่ใช้: NestJS ของเรา / MySQL kinof เดิม
+รายการเปลี่ยน: อ่าน UPSTREAM_INTEGRATION.md
+
+1. ฐานข้อมูล (ครั้งเดียว)
+สำรอง kinof แล้วเปิด database\migrations\003_upstream_lab_features.sql
+ใน MySQL Workbench ที่เชื่อมต่อฐานข้อมูล kinof แล้วรันทั้งไฟล์
+ต้องมี migration 001 และ 002 อยู่ก่อนแล้ว
+ห้ามรัน schema/seed ใหม่ทับฐานข้อมูลที่ใช้งานอยู่
+
+2. Frontend (ติดตั้งหลังดึงอัปเดตครั้งนี้)
+cd C:\Users\User\OneDrive\Desktop\kinof2\frontend
+npm.cmd install
+npm.cmd run dev
+
+ครั้งถัดไปใช้แค่ cd และ npm.cmd run dev
+เปิด http://localhost:5173
+
+3. Backend — เปิดอีก Terminal
+cd C:\Users\User\OneDrive\Desktop\kinof2\backend
+npm.cmd run start:dev
+
+ใช้ .env เดิม ไม่ต้องสร้างรหัสฐานข้อมูลใหม่
+ถ้า clone ใหม่หรือลบ node_modules ต้อง npm.cmd install ก่อน
+
+4. Face Service — เปิดอีก Terminal
+cd C:\Users\User\OneDrive\Desktop\kinof2\face-service
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --env-file .env --host 127.0.0.1 --port 8001
+
+คำสั่งนี้ใช้กรณีติดตั้ง .venv และ requirements ไว้แล้ว
+FACE_SERVICE_API_KEY ต้องตรงกับ Backend
+
+5. Kiosk
+เข้าบัญชีผู้ดูแล > จัดการข้อมูล > ห้อง > สร้างอุปกรณ์ Kiosk
+คัดลอกคีย์หรือลิงก์ไปเปิดบนเครื่องประตู
+คีย์แสดงครั้งเดียว หากหายสร้างใหม่และเพิกถอนคีย์เก่า
+เครื่องสแกนยืนยันสิทธิ์เข้าห้อง ไม่เลือกเครื่องคอมให้โดยอัตโนมัติ
+
+6. Windows Agent รุ่นใหม่ (เพิ่มจาก PowerShell Agent เดิม)
+ต้องมี .NET SDK 8 ไม่ใช่แค่ Runtime
+สร้าง Agent key สำหรับเครื่องจากหน้าผู้ดูแล Tracking
+เปิด PowerShell บนเครื่องแล็บแบบ Administrator เพราะต้องแก้ส่วน KINOF ใน hosts
+cd C:\Users\User\OneDrive\Desktop\kinof2\tracking-agent\windows-app
+$env:Kinof__ApiBaseUrl = "http://localhost:3000"
+$env:Kinof__ApiKey = "ใส่คีย์จริงจากหน้าแอดมิน"
+dotnet run
+
+ถ้า dotnet บอกไม่มี SDK แต่ติดตั้งไว้ในโฟลเดอร์ผู้ใช้ ให้ใช้:
+& C:\Users\User\.dotnet\dotnet.exe run
+
+ถ้า Agent อยู่คนละเครื่อง เปลี่ยน localhost เป็น IP เครื่องที่รัน Backend
+อย่ารัน PowerShell Agent เดิมและ Windows Agent ใหม่ผูกเครื่องเดียวกันพร้อมกัน
+ใช้บัญชีผู้ใช้ที่มีตารางเรียน/การจองในเวลานั้น แล้วกรอก OTP ของ Agent
+รหัส OTP เปิดประตูจากเว็บกับ OTP ล็อกอินเครื่องเป็นคนละรหัส
+
+7. อีเมล
+Production ต้องตั้ง ENTRY_OTP_WEBHOOK_URL และคีย์ส่งอีเมลใน Backend
+ถ้ายังไม่มี webhook และเป็น Development จะมี OTP ทดสอบในหน้า Agent
+ยังไม่ถือว่าส่งอีเมลจริงได้จนกว่าจะตั้งผู้ให้บริการและทดสอบรับอีเมล
+
+การตรวจที่ทำแล้ว: Build Frontend, Backend และ Windows Agent ผ่าน
+ชุดทดสอบ Backend ผ่าน 70 ข้อ
+กล้องจริง อีเมลจริง และการบล็อกเว็บ/โปรแกรมต้องทดสอบหลังเปิดระบบ
+
+อัปเดต 18 กันยายน: ฐานข้อมูล 003 อัปเดตแล้วบนเครื่องนี้ ไม่ต้องรันซ้ำ
+ล็อกอินและสมัครบัญชีต้องยืนยัน OTP รวมถึง Admin / Super Admin
+ยังไม่ตั้งบริการอีเมล: หน้า OTP แสดงรหัสทดสอบโหมดพัฒนา ไม่ได้ส่งอีเมลจริง
+ตั้ง LOGIN_OTP_WEBHOOK_URL/LOGIN_OTP_WEBHOOK_KEY หรือใช้บริการ ENTRY_OTP_WEBHOOK เดิม
+Production ไม่แสดงรหัสทดสอบ และไม่อนุญาตล็อกอินถ้ายังไม่มีบริการส่งอีเมล
+OTP ใช้ได้ 10 นาที กรอกผิดได้ 5 ครั้ง ส่งใหม่ทุก 60 วินาที สูงสุด 5 ครั้งต่อ challenge
+หลังรีสตาร์ต Backend ให้เริ่มล็อกอินใหม่ เพราะ challenge เก็บในหน่วยความจำ

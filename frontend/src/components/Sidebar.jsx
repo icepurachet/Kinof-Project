@@ -1,6 +1,6 @@
 import React from "react";
 import { LogOut, X } from "lucide-react";
-import { GRADIENT_PRIMARY, GRADIENT_GOLD } from "../theme";
+import { GRADIENT_PRIMARY, GRADIENT_GOLD, NAVY } from "../theme";
 
 /**
  * Sidebar
@@ -32,15 +32,15 @@ export default function Sidebar({
       )}
 
       <aside
-        className={`w-72 lg:w-64 shrink-0 text-white flex flex-col justify-between py-6 px-4 min-h-screen select-none
-          fixed inset-y-0 left-0 z-50 lg:static lg:z-20 shadow-2xl lg:shadow-xl
+        className={`w-72 lg:w-64 shrink-0 text-white flex flex-col py-6 px-4 h-full select-none
+          fixed inset-y-0 left-0 z-50 lg:relative lg:z-20 shadow-2xl lg:shadow-xl
           transition-transform duration-300 ease-out
           ${isOpen ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0`}
         style={{ background: GRADIENT_PRIMARY }}
       >
-        <div>
+        <div className="flex flex-col min-h-0 flex-1">
           {/* Brand Header */}
-          <div className="flex items-center justify-between mb-8 px-2">
+          <div className="flex items-center justify-between mb-8 px-2 shrink-0">
             <div className="flex items-center gap-3">
               <div
                 className="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-base text-navy-900 shadow-glow transition-transform hover:scale-105"
@@ -64,7 +64,7 @@ export default function Sidebar({
           </div>
 
           {/* Navigation Items */}
-          <nav className="flex flex-col gap-1.5">
+          <nav className="flex flex-col gap-1.5 min-h-0 overflow-y-auto pr-1">
             {items.map((it) => {
               const isActive = page === it.key;
               return (
@@ -88,6 +88,15 @@ export default function Sidebar({
                     className={`transition-colors ${isActive ? "text-gold-400" : "text-white/90 group-hover:text-white/90"}`}
                   />
                   <span className="truncate">{it.label}</span>
+                  {it.badge > 0 && (
+                    <span
+                      className="ml-auto min-w-[1.25rem] h-5 px-1.5 rounded-full text-[10px] font-bold flex items-center justify-center tabular-nums"
+                      style={{ background: GRADIENT_GOLD, color: NAVY }}
+                      aria-label={`${it.badge} รายการค้าง`}
+                    >
+                      {it.badge > 99 ? "99+" : it.badge}
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -96,7 +105,7 @@ export default function Sidebar({
 
         <button
           onClick={onLogout}
-          className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs md:text-sm font-medium text-white/90 hover:text-rose-200 hover:bg-rose-500/15 transition-all duration-200 mt-6"
+          className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs md:text-sm font-medium text-white/90 hover:text-rose-200 hover:bg-rose-500/15 transition-all duration-200 mt-4 shrink-0"
         >
           <LogOut size={18} />
           <span>ออกจากระบบ</span>

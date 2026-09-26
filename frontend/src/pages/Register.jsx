@@ -18,7 +18,7 @@ const initialForm = {
   phone: "",
 };
 
-export default function Register({ onAuthenticated }) {
+export default function Register({ onOtpRequired }) {
   const [form, setForm] = useState(initialForm);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -51,7 +51,7 @@ export default function Register({ onAuthenticated }) {
         studentId: form.userType === "student" ? form.studentId : null,
         phone: form.phone || null,
       });
-      onAuthenticated?.(result);
+      onOtpRequired?.(result);
     } catch (requestError) {
       setError(requestError.message);
     } finally {

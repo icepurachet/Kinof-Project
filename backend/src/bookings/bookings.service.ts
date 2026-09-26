@@ -45,10 +45,7 @@ export interface GroupBookingResult {
   reserved_seats: number;
   status: 'pending';
   expires_in_seconds: 300;
-  room: {
-    id: number;
-    room_name: string;
-  };
+  room: null;
   members: Array<{
     user_id: number;
     invite_status: 'pending';
@@ -184,7 +181,7 @@ export class BookingsService {
         LEFT JOIN rooms AS r ON r.id = b.room_id
         WHERE b.host_id = ?
            OR (bm.user_id = ? AND bm.invite_status = 'accepted')
-        ORDER BY b.booking_date DESC, b.id DESC
+        ORDER BY booking_date DESC, booking_id DESC
       `,
       [userId, userId, userId],
     )) as unknown;
@@ -318,14 +315,6 @@ export class BookingsService {
     try {
       await this.ensureInvitedUsersExist(queryRunner, uniqueMemberIds);
       await this.ensureHostHasNoBooking(queryRunner, hostId, dto);
-      const room = await this.findAndLockRoom(queryRunner, dto.room_id);
-      await this.ensureNoClassSchedule(queryRunner, dto);
-      await this.ensureRoomHasCapacity(
-        queryRunner,
-        room,
-        dto,
-        uniqueMemberIds.length + 1,
-      );
 
       const insertResult = (await queryRunner.query(
         `
@@ -337,15 +326,9 @@ export class BookingsService {
             expires_at,
             host_id,
             room_id
-          ) VALUES (?, ?, ?, 'pending', DATE_ADD(NOW(), INTERVAL 5 MINUTE), ?, ?)
+          ) VALUES (?, ?, ?, 'pending', DATE_ADD(NOW(), INTERVAL 5 MINUTE), ?, NULL)
         `,
-        [
-          dto.booking_date,
-          dto.time_slot,
-          uniqueMemberIds.length + 1,
-          hostId,
-          dto.room_id,
-        ],
+        [dto.booking_date, dto.time_slot, uniqueMemberIds.length + 1, hostId],
       )) as unknown;
       const bookingId = this.readInsertId(insertResult);
       const memberValues = uniqueMemberIds.map(() => "(?, ?, 'pending')");
@@ -370,10 +353,7 @@ export class BookingsService {
         reserved_seats: uniqueMemberIds.length + 1,
         status: 'pending',
         expires_in_seconds: 300,
-        room: {
-          id: Number(room.id),
-          room_name: room.room_name,
-        },
+        room: null,
         members: uniqueMemberIds.map((userId) => ({
           user_id: userId,
           invite_status: 'pending',
@@ -453,7 +433,7 @@ export class BookingsService {
             bm.invite_status,
             b.status AS booking_status,
             b.expires_at <= NOW() AS is_expired,
-            b.booking_date,
+            DATE_FORMAT(b.booking_date, '%Y-%m-%d') AS booking_date,
             b.time_slot,
             b.reserved_seats,
             r.id AS room_id,
@@ -547,10 +527,10 @@ export class BookingsService {
         Number(progress?.pending_members ?? 0) === 0 &&
         Number(progress?.declined_members ?? 0) === 0;
 
-      if (canSearchRoom && invitation.room_id !== null) {
+      if (canSearchRoom) {
         await queryRunner.query(
           `UPDATE bookings
-           SET status = 'confirmed', confirmed_at = NOW()
+           SET expires_at = DATE_ADD(NOW(), INTERVAL 5 MINUTE)
            WHERE id = ? AND status = 'pending'`,
           [invitation.booking_id],
         );
@@ -562,10 +542,7 @@ export class BookingsService {
         booking_id: Number(invitation.booking_id),
         invitation_id: invitationId,
         invite_status: 'accepted',
-        booking_status:
-          canSearchRoom && invitation.room_id !== null
-            ? 'confirmed'
-            : 'pending',
+        booking_status: 'pending',
         can_search_room: canSearchRoom && invitation.room_id === null,
         booking_date: String(invitation.booking_date),
         time_slot: invitation.time_slot as BookingTimeSlot,

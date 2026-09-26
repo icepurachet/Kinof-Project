@@ -18,7 +18,7 @@ describe('EntryOtpService', () => {
 
   beforeEach(() => jest.clearAllMocks());
 
-  it('สร้าง OTP แบบ hash และคืน code เฉพาะ development', async () => {
+  it('สร้าง OTP แบบ hash ส่งทางอีเมล และไม่คืนรหัสใน API', async () => {
     const dataSource = {
       query: jest
         .fn()
@@ -29,19 +29,37 @@ describe('EntryOtpService', () => {
         .mockResolvedValueOnce({ affectedRows: 1 })
         .mockResolvedValueOnce({ insertId: 9 }),
     };
+    let deliveredCode = '';
+    const mail = {
+      configured: jest.fn().mockReturnValue(true),
+      sendOtp: jest.fn((_email: string, code: string) => {
+        deliveredCode = code;
+        return Promise.resolve();
+      }),
+    };
     const service = new EntryOtpService(
       dataSource as unknown as DataSource,
       config as unknown as ConfigService,
       {} as EntryService,
+      mail as never,
     );
 
     const result = await service.request(7, 2);
-    expect(result).toMatchObject({ active: true, roomId: 2 });
-    expect(result.developmentCode).toMatch(/^\d{6}$/);
+    expect(result).toMatchObject({
+      active: true,
+      roomId: 2,
+      deliveryMode: 'smtp',
+    });
+    expect(result).not.toHaveProperty('developmentCode');
+    expect(deliveredCode).toMatch(/^\d{6}$/);
     expect(dataSource.query).toHaveBeenNthCalledWith(
       6,
       expect.any(String),
-      expect.arrayContaining([7, 2, expect.not.stringMatching(/^\d{6}$/)]),
+      expect.arrayContaining([
+        7,
+        2,
+        expect.not.stringMatching(new RegExp(`^${deliveredCode}$`)),
+      ]),
     );
   });
 
@@ -71,12 +89,10 @@ describe('EntryOtpService', () => {
         .mockResolvedValueOnce({ insertId: 11 }),
     };
     const entryService = {
-      enterRoom: jest.fn().mockResolvedValue({
+      authorizeDoor: jest.fn().mockResolvedValue({
         allowed: true,
         room_id: 2,
         reason: 'มีสิทธิ์',
-        sessionId: 11,
-        seatLabel: '03',
       }),
     };
     const service = new EntryOtpService(
@@ -88,9 +104,7 @@ describe('EntryOtpService', () => {
     await expect(service.verify(2, '123456')).resolves.toMatchObject({
       granted: true,
       identified: true,
-      sessionId: 11,
-      seatLabel: '03',
     });
-    expect(entryService.enterRoom).toHaveBeenCalledWith(7, 2);
+    expect(entryService.authorizeDoor).toHaveBeenCalledWith(7, 2);
   });
 });

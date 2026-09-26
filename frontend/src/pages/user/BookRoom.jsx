@@ -18,6 +18,7 @@ import Pill from "../../components/Pill";
 import Button from "../../components/Button";
 import {
   BOOKING_SLOTS,
+  checkBookingEligibility,
   cancelPendingBooking,
   confirmBooking,
   createBooking,
@@ -29,12 +30,19 @@ import {
 } from "../../api/bookings";
 import { findSlotClassConflict, getMySchedule } from "../../api/schedules";
 
-const BOOK_ROOM_DRAFT_KEY = "kinofBookRoomDraft";
+const LEGACY_BOOK_ROOM_DRAFT_KEY = "kinofBookRoomDraft";
+const BOOK_ROOM_FLOW_VERSION = 2;
 
-function readBookRoomDraft() {
+function bookRoomDraftKey(userId) {
+  return `kinofBookRoomDraft:${userId}`;
+}
+
+function readBookRoomDraft(userId) {
   try {
-    const raw = sessionStorage.getItem(BOOK_ROOM_DRAFT_KEY);
-    return raw ? JSON.parse(raw) : null;
+    const raw = sessionStorage.getItem(bookRoomDraftKey(userId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed?.flowVersion === BOOK_ROOM_FLOW_VERSION ? parsed : null;
   } catch {
     return null;
   }
@@ -57,7 +65,8 @@ const morningSlots = BOOKING_SLOTS.slice(0, 2);
 const afternoonSlots = BOOKING_SLOTS.slice(2);
 
 export default function BookRoom({ onBookingCreated, notify, existingBookings = [], setPage, auth }) {
-  const draft = readBookRoomDraft();
+  const userId = Number(auth?.user?.id);
+  const draft = readBookRoomDraft(userId);
   const [step, setStep] = useState(draft?.step ?? 1);
   const [isSubmitted, setIsSubmitted] = useState(draft?.isSubmitted ?? false);
   const [selectedDate, setSelectedDate] = useState(() => (draft?.selectedDate ? new Date(draft.selectedDate) : new Date()));
@@ -80,6 +89,15 @@ export default function BookRoom({ onBookingCreated, notify, existingBookings = 
   const [pendingBookingId, setPendingBookingId] = useState(draft?.pendingBookingId ?? null);
   const [groupStatus, setGroupStatus] = useState(null);
   const [invitesSent, setInvitesSent] = useState(Boolean(draft?.pendingBookingId));
+  const [eligibility, setEligibility] = useState(null);
+  const [eligibilityError, setEligibilityError] = useState("");
+  const memberKey = friends.map((friend) => Number(friend.id)).sort((a, b) => a - b).join(',');
+  const cannotBook = eligibility?.memberKey !== memberKey || eligibility?.canBook !== true;
+  const eligibilityMessage = eligibilityError || (eligibility?.memberKey !== memberKey
+    ? "กำลังตรวจสอบคะแนนสมาชิกทุกคน..."
+    : eligibility?.blockedMembers?.length
+    ? `จองไม่ได้: ${eligibility.blockedMembers.map((member) => member.username).join(', ')} คะแนนต่ำกว่า 50 หรือไม่พบบัญชี — ทุกคนต้องมีอย่างน้อย 50 คะแนน`
+    : "");
 
   const [bookingsList, setBookingsList] = useState([...existingBookings]);
 
@@ -94,13 +112,34 @@ export default function BookRoom({ onBookingCreated, notify, existingBookings = 
   }, []);
 
   useEffect(() => {
+    let active = true;
+    const refresh = async () => {
+      try {
+        const data = await checkBookingEligibility(memberKey ? memberKey.split(',').map(Number) : []);
+        if (active) { setEligibility({ ...data, memberKey }); setEligibilityError(""); }
+      } catch (error) {
+        if (active) { setEligibility(null); setEligibilityError(`ตรวจสอบสิทธิ์จองไม่ได้: ${error.message}`); }
+      }
+    };
+    refresh();
+    const timer = setInterval(refresh, 3000);
+    return () => { active = false; clearInterval(timer); };
+  }, [memberKey]);
+
+  useEffect(() => {
+    // Remove the old unscoped draft once. It could contain another account's data.
+    sessionStorage.removeItem(LEGACY_BOOK_ROOM_DRAFT_KEY);
+  }, []);
+
+  useEffect(() => {
     if (isSubmitted) {
-      sessionStorage.removeItem(BOOK_ROOM_DRAFT_KEY);
+      sessionStorage.removeItem(bookRoomDraftKey(userId));
       return;
     }
     sessionStorage.setItem(
-      BOOK_ROOM_DRAFT_KEY,
+      bookRoomDraftKey(userId),
       JSON.stringify({
+        flowVersion: BOOK_ROOM_FLOW_VERSION,
         step,
         isSubmitted,
         selectedDate: selectedDate.toISOString(),
@@ -124,42 +163,8 @@ export default function BookRoom({ onBookingCreated, notify, existingBookings = 
     availableRooms,
     selectedRoom,
     pendingBookingId,
+    userId,
   ]);
-
-  useEffect(() => {
-    if (step !== 3 || friends.length === 0 || pendingBookingId || isSubmitted || !selectedRoom || !slot) return undefined;
-    let cancelled = false;
-
-    (async () => {
-      setIsSubmitting(true);
-      setRequestError("");
-      try {
-        const { start, end } = slotToRange(selectedDate, slot);
-        const booking = await createBooking({
-          roomId: selectedRoom.id,
-          startTime: start,
-          endTime: end,
-          inviteeUserIds: friends.map((friend) => friend.id),
-        });
-        if (cancelled) return;
-        setPendingBookingId(booking.id);
-        setInvitesSent(true);
-        notify?.(`ส่งคำเชิญ ${booking.invitationsCreated ?? friends.length} คนแล้ว — รอให้ตอบรับก่อนยืนยันการจอง`);
-      } catch (error) {
-        if (!cancelled) {
-          setRequestError(error.message);
-          notify?.(error.message);
-          setStep(2);
-        }
-      } finally {
-        if (!cancelled) setIsSubmitting(false);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [step, friends, pendingBookingId, isSubmitted, selectedRoom, slot, selectedDate, notify]);
 
   useEffect(() => {
     if (!pendingBookingId) return undefined;
@@ -190,7 +195,8 @@ export default function BookRoom({ onBookingCreated, notify, existingBookings = 
   const userEmail = auth?.user?.email ?? "—";
   const hasFriends = friends.length > 0;
   const canConfirmBooking = !hasFriends || Boolean(groupStatus?.canConfirm && !groupStatus?.hasDeclined);
-  const steps = ["1. เลือกวัน-เวลา", "2. จัดการสมาชิก-ดูห้อง", "3. ยืนยันการจอง"];
+  const canChooseRoom = !hasFriends || canConfirmBooking;
+  const steps = ["1. เลือกวัน-เวลา", "2. เชิญสมาชิก", "3. เลือกห้อง-ยืนยัน"];
   const formattedDate = `${selectedDate.getDate()} ${THAI_MONTHS[selectedDate.getMonth()]} ${selectedDate.getFullYear() + 543}`;
 
   const today = new Date();
@@ -268,7 +274,7 @@ export default function BookRoom({ onBookingCreated, notify, existingBookings = 
     setFriendSearchInput("");
     setSearchResults([]);
     setEmailError(false);
-    notify?.(`เพิ่ม ${foundUser.name} เข้าสู่กลุ่มแล้ว`);
+    notify?.(`เพิ่ม ${foundUser.name} ในรายชื่อแล้ว — ยังไม่ได้ส่งคำเชิญ`);
   };
 
   const handleAddFriend = async () => {
@@ -305,7 +311,7 @@ export default function BookRoom({ onBookingCreated, notify, existingBookings = 
   };
 
   const handleSearchAvailableRooms = async () => {
-    if (!slot) return;
+    if (!slot || cannotBook || !canChooseRoom) return;
     setIsSearchingRooms(true);
     setRequestError("");
     setSelectedRoom(null);
@@ -324,8 +330,40 @@ export default function BookRoom({ onBookingCreated, notify, existingBookings = 
     }
   };
 
+  const handleProceedToConfirmation = async () => {
+    if (!slot || cannotBook || isSubmitting) return;
+    if (friends.length === 0) {
+      setHasSearchedRooms(false);
+      setSelectedRoom(null);
+      setStep(3);
+      return;
+    }
+
+    setIsSubmitting(true);
+    setRequestError("");
+    try {
+      const { start, end } = slotToRange(selectedDate, slot);
+      const booking = await createBooking({
+        startTime: start,
+        endTime: end,
+        inviteeUserIds: friends.map((friend) => friend.id),
+      });
+      setPendingBookingId(booking.id);
+      setInvitesSent(true);
+      setHasSearchedRooms(false);
+      setSelectedRoom(null);
+      setStep(3);
+      notify?.(`ส่งคำเชิญ ${booking.invitationsCreated ?? friends.length} คนแล้ว — เมื่อตอบรับครบจึงจะค้นหาห้องได้`);
+    } catch (error) {
+      setRequestError(error.message);
+      notify?.(`ส่งคำเชิญไม่สำเร็จ: ${error.message}`);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const handleConfirmBooking = async () => {
-    if (!selectedRoom || !slot) return;
+    if (!selectedRoom || !slot || cannotBook) return;
     if (hasFriends && !canConfirmBooking) return;
 
     setIsSubmitting(true);
@@ -378,7 +416,7 @@ export default function BookRoom({ onBookingCreated, notify, existingBookings = 
 
   const handleReset = async () => {
     await cancelPendingIfNeeded();
-    sessionStorage.removeItem(BOOK_ROOM_DRAFT_KEY);
+    sessionStorage.removeItem(bookRoomDraftKey(userId));
     setIsSubmitted(false);
     setStep(1);
     setSlot(null);
@@ -438,6 +476,100 @@ export default function BookRoom({ onBookingCreated, notify, existingBookings = 
     );
   };
 
+  const renderRoomChooser = () => (
+    <div className="space-y-5">
+      <div className="flex justify-center pt-2">
+        <Button
+          variant="primary"
+          size="lg"
+          icon={Search}
+          iconPosition="left"
+          onClick={handleSearchAvailableRooms}
+          disabled={cannotBook || !canChooseRoom || isSearchingRooms}
+          className="w-full max-w-sm"
+        >
+          {isSearchingRooms ? "กำลังค้นหาห้อง..." : "ค้นหาห้องว่าง"}
+        </Button>
+      </div>
+
+      {isSearchingRooms && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {[0, 1].map((i) => (
+            <div key={i} className="p-4 rounded-2xl border border-slate-200 bg-white space-y-3 animate-pulse">
+              <div className="flex items-center justify-between">
+                <div className="h-3.5 w-20 bg-slate-200 rounded-md" />
+                <div className="h-5 w-5 rounded-full bg-slate-200" />
+              </div>
+              <div className="h-1.5 w-full bg-slate-100 rounded-full" />
+              <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+                <div className="h-3 w-16 bg-slate-100 rounded-md" />
+                <div className="h-3 w-14 bg-slate-100 rounded-md" />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {hasSearchedRooms && !isSearchingRooms && (
+        <Card className="p-5 md:p-6 space-y-4 animate-fade-in">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <span className="text-sm font-bold text-ink">เลือกห้องแล็บที่ต้องการจอง:</span>
+            <span className="text-caption">พบห้องว่าง {availableRooms.length} ห้อง</span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {availableRooms.length === 0 && (
+              <div className="sm:col-span-2 text-xs text-muted text-center py-8">
+                ไม่มีห้องว่างในช่วงเวลานี้
+              </div>
+            )}
+            {availableRooms.map((room) => {
+              const isSelected = selectedRoom?.id === room.id;
+              const remaining = typeof room.remainingSeats === "number" ? room.remainingSeats : room.capacity;
+              const fill = room.capacity ? Math.max(8, Math.round((remaining / room.capacity) * 100)) : 0;
+
+              return (
+                <button
+                  key={room.id}
+                  type="button"
+                  onClick={() => setSelectedRoom(room)}
+                  className={`p-4 rounded-2xl border text-left transition-all duration-150 flex flex-col gap-3 ${
+                    isSelected
+                      ? "border-navy-800 bg-slate-50/80 shadow-md ring-2 ring-navy-800/10"
+                      : "border-slate-200 hover:border-slate-300 bg-white"
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-sm text-ink">{room.name}</span>
+                    {isSelected ? (
+                      <div className="w-5 h-5 rounded-full flex items-center justify-center text-white shadow-sm bg-navy-800">
+                        <Check size={12} strokeWidth={3} />
+                      </div>
+                    ) : (
+                      <div className="w-5 h-5 rounded-full border border-slate-300" />
+                    )}
+                  </div>
+                  <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+                    <div className="h-full rounded-full transition-all duration-300 bg-teal-500" style={{ width: `${fill}%` }} />
+                  </div>
+                  <div className="flex items-center justify-between text-xs pt-1">
+                    <div className="flex items-center gap-1.5 text-slate-500">
+                      <Users size={13} />
+                      <span>เหลือ {remaining}/{room.capacity} ที่นั่ง</span>
+                    </div>
+                    <span className="font-medium px-2.5 py-0.5 rounded-full text-xs border text-emerald-700 bg-emerald-50 border-emerald-200/60">
+                      พร้อมจอง
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+
   return (
     <div className="w-full max-w-6xl mx-auto">
       <div className="mb-5">
@@ -484,6 +616,9 @@ export default function BookRoom({ onBookingCreated, notify, existingBookings = 
       </div>
 
       {/* STEP 1: ปฏิทินและเวลา */}
+      {!isSubmitted && cannotBook && (
+        <div role="alert" className="mb-4 text-xs text-rose-800 bg-rose-50 border border-rose-200 rounded-xl p-3">{eligibilityMessage}</div>
+      )}
       {!isSubmitted && step === 1 && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
@@ -578,12 +713,12 @@ export default function BookRoom({ onBookingCreated, notify, existingBookings = 
         </div>
       )}
 
-      {/* STEP 2: จัดการกลุ่มและเลือกห้อง */}
+      {/* STEP 2: จัดการกลุ่มและส่งคำเชิญ */}
       {!isSubmitted && step === 2 && (
         <div className="space-y-6">
           <div>
-            <h2 className="text-base font-bold text-ink tracking-tight mb-0.5">เชิญเพื่อนเข้าร่วมกลุ่ม</h2>
-            <p className="text-caption">สามารถเชิญสมาชิกเข้าร่วมกลุ่มได้สูงสุด 5 คน รวมคุณแล้ว</p>
+            <h2 className="text-base font-bold text-ink tracking-tight mb-0.5">เชิญสมาชิกเข้าร่วมกลุ่ม</h2>
+            <p className="text-caption">เพิ่มสมาชิกได้สูงสุด 5 คนรวมคุณ และต้องรอให้ทุกคนตอบรับก่อนค้นหาห้อง</p>
           </div>
 
           <Card className="p-5 md:p-6 space-y-4">
@@ -602,7 +737,7 @@ export default function BookRoom({ onBookingCreated, notify, existingBookings = 
                   ) : f.status === "declined" ? (
                     <Pill tone="red" withDot>ปฏิเสธแล้ว</Pill>
                   ) : (
-                    <Pill tone="amber" withDot>ยังไม่เข้าร่วม</Pill>
+                    <Pill tone="amber" withDot>{invitesSent ? "ส่งแล้ว · รอตอบรับ" : "อยู่ในร่าง · ยังไม่ส่ง"}</Pill>
                   )}
                   <button
                     type="button"
@@ -657,42 +792,17 @@ export default function BookRoom({ onBookingCreated, notify, existingBookings = 
                 ลบกลุ่ม
               </Button>
                 <Button variant="secondary" size="sm" icon={Plus} iconPosition="left" onClick={handleAddFriend} disabled={isSearchingUsers}>
-                {isSearchingUsers ? "กำลังค้นหา..." : "ค้นหาและเพิ่มเพื่อน"}
+                {isSearchingUsers ? "กำลังค้นหา..." : "ค้นหาและเพิ่มในร่าง"}
               </Button>
             </div>
           </Card>
 
-          <p className="text-xs text-muted italic">เมื่อไปหน้ายืนยันการจอง ระบบจะส่งคำเชิญให้สมาชิก และต้องรอให้ทุกคนตอบรับก่อนยืนยันได้</p>
+          <p className="text-xs text-muted italic">ถ้าจองคนเดียว ไม่ต้องส่งคำเชิญและไปเลือกห้องได้ทันที</p>
 
-          <div className="flex justify-center pt-2">
-            <Button
-              variant="primary"
-              size="lg"
-              icon={Search}
-              iconPosition="left"
-              onClick={handleSearchAvailableRooms}
-              className="w-full max-w-sm"
-            >
-              ค้นหาห้องว่าง
-            </Button>
-          </div>
-
-          {/* Loading — skeleton cards แทนข้อความ pulse เดิม ให้เห็นโครงผลลัพธ์ที่กำลังจะมา */}
-          {isSearchingRooms && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {[0, 1].map((i) => (
-                <div key={i} className="p-4 rounded-2xl border border-slate-200 bg-white space-y-3 animate-pulse">
-                  <div className="flex items-center justify-between">
-                    <div className="h-3.5 w-20 bg-slate-200 rounded-md" />
-                    <div className="h-5 w-5 rounded-full bg-slate-200" />
-                  </div>
-                  <div className="h-1.5 w-full bg-slate-100 rounded-full" />
-                  <div className="flex items-center justify-between pt-3 border-t border-slate-100">
-                    <div className="h-3 w-16 bg-slate-100 rounded-md" />
-                    <div className="h-3 w-14 bg-slate-100 rounded-md" />
-                  </div>
-                </div>
-              ))}
+          {cannotBook && (
+            <div className="flex items-start gap-2 bg-rose-50 border border-rose-200 text-rose-800 text-xs px-3.5 py-3 rounded-xl">
+              <AlertTriangle size={14} className="shrink-0 mt-0.5" />
+              <span>{eligibilityMessage}</span>
             </div>
           )}
 
@@ -702,90 +812,32 @@ export default function BookRoom({ onBookingCreated, notify, existingBookings = 
             </div>
           )}
 
-          {hasSearchedRooms && !isSearchingRooms && (
-            <Card className="p-5 md:p-6 space-y-4 animate-fade-in">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                <span className="text-sm font-bold text-ink">เลือกห้องแล็บที่ต้องการจอง:</span>
-                <span className="text-caption">พบห้องว่าง {availableRooms.length} ห้อง</span>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {availableRooms.length === 0 && (
-                  <div className="sm:col-span-2 text-xs text-muted text-center py-8">
-                    ไม่มีห้องว่างในช่วงเวลานี้
-                  </div>
-                )}
-                {availableRooms.map((r) => {
-                  const isSelected = selectedRoom?.id === r.id;
-
-                  return (
-                    <button
-                      key={r.id}
-                      type="button"
-                      onClick={() => setSelectedRoom(r)}
-                      className={`p-4 rounded-2xl border text-left transition-all duration-150 flex flex-col gap-3 ${
-                        isSelected
-                          ? "border-navy-800 bg-slate-50/80 shadow-md ring-2 ring-navy-800/10"
-                          : "border-slate-200 hover:border-slate-300 bg-white"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="font-bold text-sm text-ink">{r.name}</span>
-                        {isSelected ? (
-                          <div className="w-5 h-5 rounded-full flex items-center justify-center text-white shadow-sm bg-navy-800">
-                            <Check size={12} strokeWidth={3} />
-                          </div>
-                        ) : (
-                          <div className="w-5 h-5 rounded-full border border-slate-300" />
-                        )}
-                      </div>
-
-                      {/* แถบแสดงที่นั่งคงเหลือ — สื่อ "เหลือเยอะ/น้อย" ได้เร็วกว่าตัวเลขล้วน */}
-                      <div>
-                        <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
-                          <div
-                            className="h-full rounded-full transition-all duration-300 bg-teal-500"
-                            style={{ width: "100%" }}
-                          />
-                        </div>
-                      </div>
-
-                      <div className="flex items-center justify-between text-xs pt-1">
-                        <div className="flex items-center gap-1.5 text-slate-500">
-                          <Users size={13} />
-                          <span>ความจุ {r.capacity} ที่นั่ง</span>
-                        </div>
-                        <span className="font-medium px-2.5 py-0.5 rounded-full text-xs border text-emerald-700 bg-emerald-50 border-emerald-200/60">
-                          พร้อมจอง
-                        </span>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div className="flex justify-end pt-3">
-                <Button variant="primary" icon={ArrowRight} disabled={!selectedRoom} onClick={() => setStep(3)}>
-                  ถัดไป: ตรวจสอบข้อมูล
-                </Button>
-              </div>
-            </Card>
-          )}
-
-          <div className="flex justify-end pt-2">
+          <div className="flex justify-between items-center gap-3 pt-2">
             <Button variant="secondary" onClick={() => setStep(1)}>
               ย้อนกลับและแก้ไข
+            </Button>
+            <Button
+              variant="primary"
+              icon={ArrowRight}
+              disabled={cannotBook || isSubmitting}
+              onClick={handleProceedToConfirmation}
+            >
+              {isSubmitting
+                ? "กำลังส่งคำเชิญ..."
+                : friends.length > 0
+                ? "ส่งคำเชิญ"
+                : "ถัดไป: เลือกห้อง"}
             </Button>
           </div>
         </div>
       )}
 
-      {/* STEP 3: ตรวจสอบข้อมูลก่อนยืนยัน */}
+      {/* STEP 3: รอสมาชิก เลือกห้อง และยืนยัน */}
       {!isSubmitted && step === 3 && (
         <div className="space-y-6">
           <div>
-            <h2 className="text-base font-bold text-ink tracking-tight">ยืนยันรายละเอียดการจอง</h2>
-            <p className="text-caption">กรุณาตรวจสอบความถูกต้องของข้อมูลก่อนกดยืนยัน</p>
+            <h2 className="text-base font-bold text-ink tracking-tight">เลือกห้องและยืนยันการจอง</h2>
+            <p className="text-caption">{hasFriends ? "รอให้สมาชิกตอบรับครบ แล้วจึงค้นหาและเลือกห้อง" : "ค้นหาห้องว่าง เลือกห้อง และยืนยันการจอง"}</p>
           </div>
 
           {hasFriends && invitesSent && (
@@ -801,12 +853,14 @@ export default function BookRoom({ onBookingCreated, notify, existingBookings = 
                 : groupStatus?.hasDeclined
                 ? "มีสมาชิกปฏิเสธคำเชิญ กรุณาย้อนกลับเพื่อแก้ไขกลุ่มหรือยกเลิกการจอง"
                 : canConfirmBooking
-                ? "สมาชิกตอบรับครบแล้ว กดยืนยันการจองได้"
-                : "ส่งคำเชิญแล้ว กำลังรอให้สมาชิกทุกคนเปิดเมนู \"คำเชิญ\" และกดยอมรับ"}
+                ? "สมาชิกตอบรับครบแล้ว ค้นหาและเลือกห้องได้"
+                : "ส่งคำเชิญแล้ว กำลังรอให้สมาชิกทุกคนกดยอมรับ ระหว่างนี้ยังค้นหาห้องไม่ได้"}
             </div>
           )}
 
-          <div className="border border-slate-200/80 rounded-3xl overflow-hidden bg-white shadow-soft">
+          {canChooseRoom && renderRoomChooser()}
+
+          {selectedRoom && <div className="border border-slate-200/80 rounded-3xl overflow-hidden bg-white shadow-soft">
             <div className="p-5 md:p-6 text-white bg-brand-gradient">
               <h3 className="text-sm md:text-base font-bold mb-0.5">รายละเอียดสรุปการจองห้องปฏิบัติการ</h3>
               <p className="text-xs text-slate-200 font-light">ข้อมูลสำหรับระบบตรวจสอบและบันทึกสิทธิ์</p>
@@ -828,7 +882,7 @@ export default function BookRoom({ onBookingCreated, notify, existingBookings = 
               <div className="grid grid-cols-3 px-5 md:px-6 py-4 items-center">
                 <span className="text-muted font-medium">ห้องที่เลือก</span>
                 <span className="col-span-2 font-semibold text-navy-800">
-                  {selectedRoom?.name} (รองรับ {selectedRoom?.capacity} ที่นั่ง)
+                  {selectedRoom?.name} (เหลือ {selectedRoom?.remainingSeats ?? selectedRoom?.capacity}/{selectedRoom?.capacity} ที่นั่ง)
                 </span>
               </div>
               <div className="grid grid-cols-3 px-5 md:px-6 py-4 items-start">
@@ -839,7 +893,7 @@ export default function BookRoom({ onBookingCreated, notify, existingBookings = 
                       <div key={f.email} className="font-medium text-slate-800 flex items-center gap-2">
                         <span>• {f.email}</span>
                         <Pill tone={f.status === "joined" ? "green" : f.status === "declined" ? "red" : "amber"}>
-                          {f.status === "joined" ? "เข้าร่วมแล้ว" : f.status === "declined" ? "ปฏิเสธแล้ว" : "ยังไม่เข้าร่วม"}
+                          {f.status === "joined" ? "เข้าร่วมแล้ว" : f.status === "declined" ? "ปฏิเสธแล้ว" : invitesSent ? "ส่งแล้ว · รอตอบรับ" : "อยู่ในร่าง · ยังไม่ส่ง"}
                         </Pill>
                       </div>
                     ))
@@ -849,7 +903,7 @@ export default function BookRoom({ onBookingCreated, notify, existingBookings = 
                 </div>
               </div>
             </div>
-          </div>
+          </div>}
 
           {requestError && (
             <div className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-4 py-3" role="alert">
@@ -864,13 +918,15 @@ export default function BookRoom({ onBookingCreated, notify, existingBookings = 
             <Button
               variant="primary"
               icon={Check}
-              disabled={isSubmitting || (hasFriends && (!invitesSent || !canConfirmBooking))}
+              disabled={!selectedRoom || cannotBook || isSubmitting || (hasFriends && (!invitesSent || !canConfirmBooking))}
               onClick={handleConfirmBooking}
             >
               {isSubmitting
                 ? "กำลังยืนยัน..."
                 : hasFriends && !canConfirmBooking
                 ? "รอสมาชิกตอบรับ..."
+                : !selectedRoom
+                ? "กรุณาเลือกห้อง"
                 : "ยืนยันการจอง"}
             </Button>
           </div>

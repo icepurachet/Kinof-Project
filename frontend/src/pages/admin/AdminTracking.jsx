@@ -179,9 +179,9 @@ export default function AdminTracking({
   const runAction = async (action, successMessage) => {
     setBusy(true);
     try {
-      await action();
+      const result = await action();
       await load({ silent: true });
-      notify?.(successMessage);
+      notify?.(typeof successMessage === "function" ? successMessage(result) : successMessage);
     } catch (actionError) {
       notify?.(actionError.message);
     } finally {
@@ -200,9 +200,9 @@ export default function AdminTracking({
     setBulkAction(null);
     runAction(
       () => bulkRoomAction(room.id, action),
-      action === "close"
-        ? `ระงับ ${room.name} และสั่งออกจากระบบผู้ใช้ทั้งหมดแล้ว`
-        : `${BULK_ACTIONS[action].title}แล้ว`,
+      (result) => action === "open"
+        ? `เปิดใช้งาน ${room.name} แล้ว (${result.machine_count} เครื่อง)`
+        : `${BULK_ACTIONS[action].title}${room.name} แล้ว (${result.machine_count} เครื่อง, ผู้ใช้งาน ${result.active_session_count} คน, ส่งคำสั่งออก ${result.logout_commands_queued} เครื่อง)`,
     );
   };
 
@@ -380,6 +380,14 @@ export default function AdminTracking({
   }
 
   const seatMeta = seatMetaOf(seat.status);
+  const occupied = seat.status === "in_use" || Boolean(session);
+  const agentOffline = Boolean(seat.agentRegistered && !seat.agentOnline);
+  const canForceLogout = occupied && !agentOffline;
+  const logoutHint = agentOffline
+    ? "Agent ออฟไลน์ — สั่งออกจากระบบไม่ได้จนกว่า Agent จะออนไลน์"
+    : seat.agentRegistered
+      ? "สั่งออกจากระบบเมื่อ Agent ออนไลน์ — การออกจากเว็บ KINOF ของนักศึกษาจะไม่ปล่อยที่นั่ง"
+      : "เครื่องนี้ยังไม่ได้ติดตั้ง Agent จึงปล่อยที่นั่งจากฝั่งเซิร์ฟเวอร์ได้ — การออกจากเว็บ KINOF จะไม่ปล่อยที่นั่ง";
 
   return (
     <Page>
@@ -409,6 +417,11 @@ export default function AdminTracking({
                 <Info label="ประเภทผู้ใช้" value={session.user.userType || "-"} />
                 <Info label="เริ่มเซสชัน" value={formatDateTime(session.startedAt)} className="sm:col-span-2" />
                 <Info label="ระยะเวลา" value={formatDuration(session.startedAt)} />
+                <Info
+                  label="การจองช่วงนี้"
+                  value={session.hasActiveBooking ? "มีการจองห้องนี้" : "ไม่มีจองช่วงนี้ (เข้าเครื่องโดยตรง)"}
+                  className="sm:col-span-3"
+                />
               </div>
             ) : (
               <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 py-8 text-center text-xs text-muted">
@@ -454,7 +467,9 @@ export default function AdminTracking({
 
         <Card className="p-5 md:p-6 h-fit">
           <h2 className="text-sm font-bold text-ink mb-1">จัดการคอมพิวเตอร์</h2>
-          <p className="text-xs text-muted mb-5">สถานะเครื่องมาจาก Agent และเซสชันปัจจุบันโดยอัตโนมัติ</p>
+          <p className="text-xs text-muted mb-5">
+            สั่งออกจากระบบได้เมื่อ Agent ออนไลน์ หรือเมื่อเครื่องยังไม่ได้ติดตั้ง Agent — Agent ออฟไลน์สั่งไม่ได้
+          </p>
           <div className="space-y-3">
             <div className="rounded-xl bg-slate-50 border border-slate-100 p-3 flex items-center justify-between">
               <span className="text-xs text-slate-600">สถานะเครื่อง</span>
@@ -474,11 +489,14 @@ export default function AdminTracking({
             variant="danger"
             icon={LogOut}
             className="mt-5"
-            disabled={busy || !seat.agentRegistered}
+            disabled={busy || !canForceLogout}
             onClick={logoutSeat}
           >
             สั่งออกจากระบบ
           </Button>
+          <p className="text-[11px] text-slate-500 mt-2 leading-relaxed">
+            {logoutHint}
+          </p>
         </Card>
       </div>
     </Page>

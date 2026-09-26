@@ -4,6 +4,10 @@ import { AuthenticatedRequest } from '../auth/jwt-auth.guard';
 import { BookingsController } from './bookings.controller';
 import { BookingsService } from './bookings.service';
 import { CreateSoloBookingDto } from './dto/create-solo-booking.dto';
+import { LabService } from '../lab-features/lab.service';
+jest.mock('../lab-features/lab.service', () => ({
+  LabService: class LabService {},
+}));
 
 jest.mock('./bookings.service', () => ({
   BookingsService: class BookingsService {},
@@ -25,6 +29,13 @@ describe('BookingsController', () => {
       controllers: [BookingsController],
       providers: [
         { provide: BookingsService, useValue: bookingsService },
+        {
+          provide: LabService,
+          useValue: {
+            requireScore: jest.fn().mockResolvedValue(undefined),
+            requireGroupScore: jest.fn().mockResolvedValue(undefined),
+          },
+        },
         { provide: JwtAuthGuard, useValue: { canActivate: () => true } },
       ],
     }).compile();
@@ -60,6 +71,13 @@ describe('BookingsController', () => {
       controllers: [BookingsController],
       providers: [
         { provide: BookingsService, useValue: bookingsService },
+        {
+          provide: LabService,
+          useValue: {
+            requireScore: jest.fn().mockResolvedValue(undefined),
+            requireGroupScore: jest.fn().mockResolvedValue(undefined),
+          },
+        },
         { provide: JwtAuthGuard, useValue: { canActivate: () => true } },
       ],
     }).compile();
@@ -76,7 +94,6 @@ describe('BookingsController', () => {
     const dto = {
       booking_date: '2026-09-12',
       time_slot: '09:00-11:30' as const,
-      room_id: 3,
       member_ids: [8, 9],
     };
 
@@ -97,6 +114,13 @@ describe('BookingsController', () => {
       controllers: [BookingsController],
       providers: [
         { provide: BookingsService, useValue: bookingsService },
+        {
+          provide: LabService,
+          useValue: {
+            requireScore: jest.fn().mockResolvedValue(undefined),
+            requireGroupScore: jest.fn().mockResolvedValue(undefined),
+          },
+        },
         { provide: JwtAuthGuard, useValue: { canActivate: () => true } },
       ],
     }).compile();
@@ -131,6 +155,13 @@ describe('BookingsController', () => {
       controllers: [BookingsController],
       providers: [
         { provide: BookingsService, useValue: bookingsService },
+        {
+          provide: LabService,
+          useValue: {
+            requireScore: jest.fn().mockResolvedValue(undefined),
+            requireGroupScore: jest.fn().mockResolvedValue(undefined),
+          },
+        },
         { provide: JwtAuthGuard, useValue: { canActivate: () => true } },
       ],
     }).compile();
@@ -154,11 +185,22 @@ describe('BookingsController', () => {
   it('ให้เฉพาะ host จาก token เลือกห้องของกลุ่ม', async () => {
     const bookingsService = {
       confirmGroupBookingRoom: jest.fn().mockResolvedValue({ booking_id: 11 }),
+      findUserBookingDetail: jest.fn().mockResolvedValue({
+        is_host: true,
+        members: [{ user_id: 8 }, { user_id: 9 }],
+      }),
     };
     const module: TestingModule = await Test.createTestingModule({
       controllers: [BookingsController],
       providers: [
         { provide: BookingsService, useValue: bookingsService },
+        {
+          provide: LabService,
+          useValue: {
+            requireScore: jest.fn().mockResolvedValue(undefined),
+            requireGroupScore: jest.fn().mockResolvedValue(undefined),
+          },
+        },
         { provide: JwtAuthGuard, useValue: { canActivate: () => true } },
       ],
     }).compile();
@@ -181,5 +223,59 @@ describe('BookingsController', () => {
       11,
       dto,
     );
+    expect(module.get(LabService).requireGroupScore).toHaveBeenCalledWith([
+      7, 8, 9,
+    ]);
+  });
+
+  it('blocks confirmation when a persisted member score falls below 50', async () => {
+    const bookings = {
+      findUserBookingDetail: jest
+        .fn()
+        .mockResolvedValue({ is_host: true, members: [{ user_id: 8 }] }),
+      confirmGroupBookingRoom: jest.fn(),
+    };
+    const lab = {
+      requireGroupScore: jest
+        .fn()
+        .mockRejectedValue(new Error('คะแนนต่ำกว่า 50')),
+    };
+    const controller = new BookingsController(
+      bookings as unknown as BookingsService,
+      lab as unknown as LabService,
+    );
+    await expect(
+      controller.confirmGroupBookingRoom(
+        { user: { sub: 7 } } as AuthenticatedRequest,
+        11,
+        { room_id: 3 },
+      ),
+    ).rejects.toThrow('คะแนนต่ำกว่า 50');
+    expect(lab.requireGroupScore).toHaveBeenCalledWith([7, 8]);
+    expect(bookings.confirmGroupBookingRoom).not.toHaveBeenCalled();
+  });
+
+  it('blocks group creation if any invitee fails the score check', async () => {
+    const bookings = { createGroupBooking: jest.fn() };
+    const lab = {
+      requireGroupScore: jest
+        .fn()
+        .mockRejectedValue(new Error('คะแนนต่ำกว่า 50')),
+    };
+    const controller = new BookingsController(
+      bookings as unknown as BookingsService,
+      lab as unknown as LabService,
+    );
+    await expect(
+      controller.createGroupBooking(
+        { user: { sub: 7 } } as AuthenticatedRequest,
+        {
+          booking_date: '2026-09-20',
+          time_slot: '09:00-11:30',
+          member_ids: [8],
+        },
+      ),
+    ).rejects.toThrow();
+    expect(bookings.createGroupBooking).not.toHaveBeenCalled();
   });
 });

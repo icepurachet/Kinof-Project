@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+import { Workbook } from 'exceljs';
 
 const HEADERS = [
   'term_name',
@@ -15,6 +16,7 @@ const HEADERS = [
   'end_time',
   'room_name',
   'user_id',
+  'student_id',
 ] as const;
 
 type CsvRow = Record<(typeof HEADERS)[number], string> & { row: number };
@@ -60,8 +62,93 @@ export class ScheduleImportService {
     return `\uFEFF${HEADERS.join(',')}\r\n1/2026,2026-06-01,2026-10-15,CS101,Introduction to Computing,1,LAB,Ajarn Somchai,Monday,09:00,11:00,LAB-1,1\r\n`;
   }
 
-  async preview(file: Buffer): Promise<ScheduleImportPreview> {
+  async excelTemplate(): Promise<Buffer> {
+    const workbook = new Workbook();
+    const sheet = workbook.addWorksheet('Schedules');
+    sheet.addRow(HEADERS.filter((h) => h !== 'user_id'));
+    sheet.addRow([
+      '1/2026',
+      '2026-06-01',
+      '2026-10-15',
+      'CS101',
+      'Introduction to Computing',
+      '1',
+      'LAB',
+      'Ajarn Somchai',
+      'Monday',
+      '09:00',
+      '11:00',
+      'LAB-1',
+      '6600000001',
+    ]);
+    sheet.getRow(1).font = { bold: true };
+    sheet.columns.forEach((column) => {
+      column.width = 24;
+      column.numFmt = '@';
+    });
+    return Buffer.from(await workbook.xlsx.writeBuffer());
+  }
+
+  private async readImport(file: Buffer): Promise<CsvRow[]> {
+    if (file.subarray(0, 2).toString() === 'PK') {
+      // Reject oversized ZIP entries before ExcelJS inflates the workbook.
+      let total = 0;
+      for (let i = 0; i + 46 <= file.length; i++) {
+        if (file.readUInt32LE(i) !== 0x02014b50) continue;
+        total += file.readUInt32LE(i + 24);
+        if (total > 20 * 1024 * 1024)
+          throw new BadRequestException('Excel มีขนาดข้อมูลใหญ่เกินไป');
+      }
+      const workbook = new Workbook();
+      try {
+        await workbook.xlsx.load(file as never);
+      } catch {
+        throw new BadRequestException('ไฟล์ Excel ไม่ถูกต้อง');
+      }
+      const sheet = workbook.worksheets[0];
+      if (!sheet || sheet.rowCount > 5000 || sheet.columnCount > 50)
+        throw new BadRequestException(
+          'Excel ต้องมีไม่เกิน 5000 แถวและ 50 คอลัมน์',
+        );
+      const lines: string[] = [];
+      sheet.eachRow((row) => {
+        const values: string[] = [];
+        for (let i = 1; i <= sheet.columnCount; i++) {
+          const cell = row.getCell(i);
+          if (cell.type === 6)
+            throw new BadRequestException('ไม่รองรับสูตรในไฟล์นำเข้า');
+          const value =
+            cell.value instanceof Date
+              ? cell.value.toISOString().slice(0, 10)
+              : cell.text;
+          values.push(`"${value.replaceAll('"', '""')}"`);
+        }
+        lines.push(values.join(','));
+      });
+      file = Buffer.from(lines.join('\n'));
+    }
     const rows = this.parse(file);
+    const ids = [...new Set(rows.map((r) => r.student_id).filter(Boolean))];
+    if (ids.length) {
+      const users = this.readRows(
+        await this.dataSource.query(
+          `SELECT id,student_id FROM users WHERE is_active=1 AND role='student' AND student_id IN (${ids.map(() => '?').join(',')})`,
+          ids,
+        ),
+      );
+      for (const row of rows)
+        if (row.student_id) {
+          const user = users.find((u) => u.student_id === row.student_id);
+          if (row.user_id && row.user_id !== String(user?.id))
+            throw new BadRequestException('student_id กับ user_id ไม่ตรงกัน');
+          row.user_id = user ? String(user.id) : '';
+        }
+    }
+    return rows;
+  }
+
+  async preview(file: Buffer): Promise<ScheduleImportPreview> {
+    const rows = await this.readImport(file);
     const rooms = this.readRows(
       (await this.dataSource.query(
         'SELECT id, room_name FROM rooms WHERE status = ?',
@@ -172,7 +259,7 @@ export class ScheduleImportService {
         });
       }
 
-      if (row.user_id) {
+      if (row.user_id || row.student_id) {
         const id = Number(row.user_id);
         const user = usersById.get(id);
         const enrollmentMessages: string[] = [];
@@ -183,7 +270,7 @@ export class ScheduleImportService {
         }
         enrollments.push({
           row: row.row,
-          studentId: row.user_id,
+          studentId: row.student_id || row.user_id,
           subjectCode: row.subject_code,
           roomName: row.room_name,
           status: enrollmentMessages.length ? 'error' : 'linked',
@@ -228,7 +315,7 @@ export class ScheduleImportService {
         'ไฟล์ยังมีข้อมูลผิดพลาด กรุณาแก้ไขแล้วดูตัวอย่างอีกครั้ง',
       );
     }
-    const rows = this.parse(file);
+    const rows = await this.readImport(file);
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
@@ -304,6 +391,14 @@ export class ScheduleImportService {
       let enrolled = 0;
       for (const row of rows) {
         if (!row.user_id) continue;
+        const active = this.readRows(
+          await queryRunner.query(
+            'SELECT id FROM users WHERE id=? AND is_active=1 FOR UPDATE',
+            [Number(row.user_id)],
+          ),
+        );
+        if (!active.length)
+          throw new BadRequestException('สมาชิกถูกระงับหรือไม่มีบัญชีแล้ว');
         const subjectId = subjectIds.get(
           `${row.subject_code}\u0000${row.section}`,
         );
@@ -317,7 +412,7 @@ export class ScheduleImportService {
       }
       await queryRunner.query(
         'INSERT INTO audit_logs (action, admin_id) VALUES (?, ?)',
-        [`นำเข้าตารางเรียน CSV ภาคเรียน ${rows[0].term_name}`, adminId],
+        [`นำเข้าตารางเรียนภาคเรียน ${rows[0].term_name}`, adminId],
       );
       await queryRunner.commitTransaction();
       return { schedules: subjectIds.size, enrolled, pending: 0 };
@@ -338,7 +433,13 @@ export class ScheduleImportService {
       );
     }
     const headers = table[0].map((value) => value.trim());
-    const missing = HEADERS.filter((header) => !headers.includes(header));
+    const missing = HEADERS.filter(
+      (header) =>
+        !['user_id', 'student_id'].includes(header) &&
+        !headers.includes(header),
+    );
+    if (!headers.includes('user_id') && !headers.includes('student_id'))
+      missing.push('student_id');
     if (missing.length) {
       throw new BadRequestException(`ไฟล์ขาดคอลัมน์: ${missing.join(', ')}`);
     }
@@ -392,7 +493,9 @@ export class ScheduleImportService {
 
   private validateSchedule(row: CsvRow, roomNames: Set<string>): string[] {
     const messages: string[] = [];
-    const required = HEADERS.filter((header) => header !== 'user_id');
+    const required = HEADERS.filter(
+      (header) => !['user_id', 'student_id'].includes(header),
+    );
     if (required.some((header) => !row[header]))
       messages.push('มีช่องบังคับว่าง');
     if (!['LAB', 'LECT'].includes(row.class_type)) {

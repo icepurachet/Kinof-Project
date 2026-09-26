@@ -1,14 +1,16 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { CalendarRange, FileSpreadsheet } from "lucide-react";
 import Card from "../../components/Card";
+import Button from "../../components/Button";
 import { NAVY } from "../../theme";
-import { bangkokDate, exportTrackingReport, getTrackingRooms } from "../../api/tracking";
+import { downloadAdminExport } from "../../api/admin";
+import { bangkokDate, getTrackingRooms } from "../../api/tracking";
 
 const ROWS = [
-  { label: "ประวัติเข้า-ออกระบบ", key: "session" },
-  { label: "โปรแกรมที่ถูกใช้งาน", key: "program" },
-  { label: "เว็บไซต์ที่เข้าชม", key: "website" },
-  { label: "กิจกรรมน่าสงสัย", key: "flagged" },
+  { label: "ประวัติเข้า-ออกระบบ", key: "log" },
+  { label: "โปรแกรมที่ถูกใช้งาน", key: "prog" },
+  { label: "เว็บไซต์ที่เข้าชม", key: "web" },
+  { label: "กิจกรรมน่าสงสัย", key: "flag" },
 ];
 
 const ALL_ROOMS = "all";
@@ -46,9 +48,10 @@ const buildPresets = (today) => [
 ];
 
 export default function AdminExport({ notify }) {
+  const [formats, setFormats] = useState({ log: "Excel", prog: "Excel", web: "Excel", flag: "Excel" });
   const [rooms, setRooms] = useState([]);
   const [roomId, setRoomId] = useState(ALL_ROOMS);
-  const [busyReport, setBusyReport] = useState(null);
+  const [exportingKey, setExportingKey] = useState(null);
 
   const today = useMemo(() => bangkokDate(), []);
   const presets = useMemo(() => buildPresets(today), [today]);
@@ -78,23 +81,24 @@ export default function AdminExport({ notify }) {
     if (value < startDate) setStartDate(value);
   };
 
-  const roomLabel = roomId === ALL_ROOMS ? "ทุกห้อง" : rooms.find((room) => String(room.id) === String(roomId))?.name ?? "ทุกห้อง";
+  const roomLabel = roomId === ALL_ROOMS ? "ทุกห้อง" : rooms.find((room) => room.id === roomId)?.name ?? "ทุกห้อง";
   const rangeDays = dayCount(startDate, endDate);
 
-  const handleExport = async (report) => {
-    setBusyReport(report.key);
+  const handleExport = async (row) => {
+    setExportingKey(row.key);
     try {
-      await exportTrackingReport({
-        report: report.key,
+      await downloadAdminExport({
+        report: row.key,
+        format: formats[row.key],
         roomId,
-        from: startDate,
-        to: endDate,
+        startDate,
+        endDate,
       });
-      notify?.(`ดาวน์โหลด “${report.label}” เป็น CSV แล้ว`);
+      notify(`ส่งออก "${row.label}" (${roomLabel} · ${formatDateLabel(startDate)} - ${formatDateLabel(endDate)}) เป็นไฟล์ ${formats[row.key]} แล้ว`);
     } catch (error) {
-      notify?.(error.message);
+      notify(error.message);
     } finally {
-      setBusyReport(null);
+      setExportingKey(null);
     }
   };
 
@@ -175,15 +179,24 @@ export default function AdminExport({ notify }) {
             <div key={r.key} className="flex items-center justify-between border border-gray-100 rounded-lg px-4 py-3">
               <span className="text-xs text-gray-700">{r.label}</span>
               <div className="flex items-center gap-2">
-                <span className="text-xs text-gray-500">CSV (เปิดด้วย Excel ได้)</span>
-                <button
-                  onClick={() => handleExport(r)}
-                  disabled={busyReport !== null}
-                  className="flex items-center gap-1 text-xs text-white rounded-lg px-3 py-1.5 disabled:opacity-50"
-                  style={{ background: NAVY }}
+                <select
+                  value={formats[r.key]}
+                  onChange={(e) => setFormats({ ...formats, [r.key]: e.target.value })}
+                  className="text-xs border border-gray-200 rounded-lg px-2 py-1.5"
+                  disabled={exportingKey === r.key}
                 >
-                  <FileSpreadsheet size={13} /> {busyReport === r.key ? "กำลังสร้าง..." : "ส่งออก"}
-                </button>
+                  <option>Excel</option>
+                  <option>CSV</option>
+                </select>
+                <Button
+                  size="sm"
+                  icon={FileSpreadsheet}
+                  iconPosition="left"
+                  disabled={exportingKey !== null}
+                  onClick={() => handleExport(r)}
+                >
+                  {exportingKey === r.key ? "กำลังส่งออก..." : "ส่งออก"}
+                </Button>
               </div>
             </div>
           ))}

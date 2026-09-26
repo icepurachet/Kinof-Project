@@ -22,11 +22,6 @@ export class CreateGroupBookingDto {
   @IsIn(BOOKING_TIME_SLOTS)
   time_slot: BookingTimeSlot;
 
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  room_id: number;
-
   @IsArray()
   @ArrayMinSize(1)
   @ArrayUnique()

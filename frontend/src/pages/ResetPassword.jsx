@@ -28,7 +28,7 @@ export default function ResetPassword() {
 
     setLoading(true);
     try {
-      await resetPassword(token, password);
+      await resetPassword(token, password, searchParams.get("account"));
       navigate("/login", { replace: true });
     } catch (requestError) {
       setError(requestError.message);

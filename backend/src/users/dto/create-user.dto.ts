@@ -7,9 +7,18 @@ import {
   MaxLength,
   MinLength,
   NotContains,
+  Matches,
+  ValidateIf,
 } from 'class-validator';
 
 export class CreateUserDto {
+  @ValidateIf(
+    (dto: CreateUserDto) =>
+      dto.role === 'student' || dto.student_id !== undefined,
+  )
+  @IsString()
+  @Matches(/^\d{10}$/, { message: 'รหัสนักศึกษาต้องเป็นตัวเลข 10 หลัก' })
+  student_id?: string;
   @IsEmail()
   @MaxLength(100)
   email: string;

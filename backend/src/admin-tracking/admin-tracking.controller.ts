@@ -21,6 +21,8 @@ import { CreateAgentDto } from './dto/create-agent.dto';
 import { QueueCommandDto } from './dto/queue-command.dto';
 import { UpdateRoomOperationDto } from './dto/update-room-operation.dto';
 import { ExportTrackingDto } from './dto/export-tracking.dto';
+import { TrackingActivityQueryDto } from './dto/tracking-activity-query.dto';
+import { BulkRoomActionDto } from './dto/bulk-room-action.dto';
 
 @Controller('admin/tracking')
 @UseGuards(AdminJwtAuthGuard)
@@ -43,8 +45,16 @@ export class AdminTrackingController {
   }
 
   @Get('activity')
-  activity(@Query('limit') limit?: string) {
-    return this.service.activity(limit ? Number(limit) : 500);
+  activity(@Query() query: TrackingActivityQueryDto) {
+    return this.service.activity(query);
+  }
+
+  @Get('computers/:computerId/activity')
+  computerActivity(
+    @Param('computerId', ParseIntPipe) computerId: number,
+    @Query() query: TrackingActivityQueryDto,
+  ) {
+    return this.service.computerActivity(computerId, query.limit ?? 50);
   }
 
   @Get('export')
@@ -68,6 +78,15 @@ export class AdminTrackingController {
     @Body() dto: UpdateRoomOperationDto,
   ) {
     return this.service.updateRoomStatus(request.admin.sub, roomId, dto.status);
+  }
+
+  @Post('rooms/:roomId/bulk-action')
+  bulkRoomAction(
+    @Req() request: AdminAuthenticatedRequest,
+    @Param('roomId', ParseIntPipe) roomId: number,
+    @Body() dto: BulkRoomActionDto,
+  ) {
+    return this.service.bulkRoomAction(request.admin.sub, roomId, dto.action);
   }
 
   @Post('computers/:computerId/commands')

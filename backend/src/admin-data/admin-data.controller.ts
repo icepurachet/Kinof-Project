@@ -50,11 +50,11 @@ export class AdminDataController {
   ) {}
 
   @Get('schedules/template')
-  scheduleTemplate(@Res() response: Response): void {
+  async scheduleTemplate(@Res() response: Response): Promise<void> {
     response
-      .type('text/csv; charset=utf-8')
-      .attachment('kinof-schedule-template.csv')
-      .send(this.scheduleImport.template());
+      .type('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+      .attachment('kinof-schedule-template.xlsx')
+      .send(await this.scheduleImport.excelTemplate());
   }
 
   @Post('schedules/import/preview')
@@ -198,9 +198,9 @@ export class AdminDataController {
   }
 
   private assertCsv(file?: UploadedCsvFile): asserts file is UploadedCsvFile {
-    if (!file) throw new BadRequestException('กรุณาแนบไฟล์ CSV');
-    if (!file.originalname.toLowerCase().endsWith('.csv')) {
-      throw new BadRequestException('รองรับเฉพาะไฟล์ .csv');
+    if (!file) throw new BadRequestException('กรุณาแนบไฟล์ Excel หรือ CSV');
+    if (!/\.(csv|xlsx)$/i.test(file.originalname)) {
+      throw new BadRequestException('รองรับไฟล์ .csv หรือ .xlsx');
     }
   }
 }

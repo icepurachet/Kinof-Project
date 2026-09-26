@@ -117,9 +117,7 @@ export default function EntryOtp({ myBookings = [], notify }) {
     try {
       const result = await requestEntryOtp(roomId || null);
       applyActive({ ...result, hasActive: true });
-      notify?.(result.deliveryMode === "webhook"
-        ? `ส่งรหัสเข้าห้องไปที่ ${result.maskedEmail} แล้ว`
-        : `รหัสทดสอบคือ ${result.developmentCode} (Production จะส่งผ่านระบบอีเมล)`);
+      notify?.(`ส่งรหัสเข้าห้องไปที่ ${result.maskedEmail} แล้ว`);
     } catch (requestError) {
       setError(requestError.message);
     } finally {
@@ -133,9 +131,7 @@ export default function EntryOtp({ myBookings = [], notify }) {
     try {
       const result = await resendEntryOtp(active?.roomId || roomId || null);
       applyActive({ ...result, hasActive: true });
-      notify?.(result.deliveryMode === "webhook"
-        ? `ส่งรหัสใหม่ไปที่ ${result.maskedEmail} แล้ว`
-        : `รหัสทดสอบใหม่คือ ${result.developmentCode}`);
+      notify?.(`ส่งรหัสใหม่ไปที่ ${result.maskedEmail} แล้ว`);
     } catch (requestError) {
       setError(requestError.message);
     } finally {
@@ -147,7 +143,7 @@ export default function EntryOtp({ myBookings = [], notify }) {
     <div className="w-full max-w-3xl mx-auto">
       <div className="mb-5">
         <h1 className="text-xl md:text-2xl font-bold text-ink tracking-tight">รหัสเข้าห้องสำรอง</h1>
-        <p className="text-caption mt-0.5">ขอ OTP ทางอีเมลก่อนไปแล็บ ใช้เมื่อสแกนหน้าไม่สำเร็จที่ Kiosk</p>
+        <p className="text-caption mt-0.5">ขอ OTP ทางอีเมล แล้วนำรหัส 6 หลักไปกรอกที่ Kiosk</p>
       </div>
 
       <Card className="p-5 md:p-6 mb-5 border-amber-200/80 bg-amber-50/40">
@@ -156,7 +152,7 @@ export default function EntryOtp({ myBookings = [], notify }) {
             <ShieldAlert size={18} />
           </div>
           <div>
-            <div className="text-sm font-semibold text-ink">ใช้เมื่อสแกนหน้าไม่สำเร็จที่ Kiosk เท่านั้น</div>
+            <div className="text-sm font-semibold text-ink">ใช้เป็นทางเลือกแทนการสแกนใบหน้าได้</div>
             <p className="text-xs text-slate-600 mt-1 leading-relaxed">
               รหัส 6 หลักใช้ได้ 10 นาที และใช้ได้ครั้งเดียว ไม่ต้องขอทุกครั้งถ้าสแกนหน้าผ่าน
             </p>
@@ -227,7 +223,7 @@ export default function EntryOtp({ myBookings = [], notify }) {
                     {resending ? "กำลังส่งใหม่..." : "ส่งใหม่"}
                   </Button>
                 </div>
-                <p className="text-xs text-slate-500">รหัสจริงอยู่ที่อีเมลหรือหน้าต่าง backend — หน้าเว็บไม่แสดงรหัส</p>
+                <p className="text-xs text-slate-500">รหัสจริงถูกส่งไปยังอีเมล — หน้าเว็บนี้จะไม่แสดงรหัส</p>
                 <Button
                   variant="ghost"
                   size="sm"

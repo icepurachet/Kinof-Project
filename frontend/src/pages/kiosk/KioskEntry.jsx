@@ -1,6 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
-  Armchair,
   ArrowLeft,
   Camera,
   CheckCircle2,
@@ -8,13 +7,21 @@ import {
   DoorOpen,
   KeyRound,
   Loader2,
-  Monitor,
   RefreshCw,
   ScanFace,
   XCircle,
 } from "lucide-react";
 import { useParams } from "react-router-dom";
-import { getKioskRoom, verifyKioskFace, verifyKioskOtp } from "../../api/kiosk";
+import {
+  KioskAuthError,
+  clearKioskKey,
+  consumeKioskProvisionParams,
+  getKioskRoom,
+  readKioskKey,
+  verifyKioskFace,
+  verifyKioskOtp,
+  writeKioskKey,
+} from "../../api/kiosk";
 import { useFaceCapture } from "../../hooks/useFaceCapture";
 
 const SUCCESS_RESET_SECONDS = 30;
@@ -53,6 +60,11 @@ export default function KioskEntry() {
   const [room, setRoom] = useState(null);
   const [roomError, setRoomError] = useState("");
   const [loadingRoom, setLoadingRoom] = useState(true);
+  const [kioskKey, setKioskKey] = useState("");
+  const [needsSetup, setNeedsSetup] = useState(false);
+  const [setupInput, setSetupInput] = useState("");
+  const [setupError, setSetupError] = useState("");
+  const [setupBusy, setSetupBusy] = useState(false);
   const [step, setStep] = useState("welcome");
   const [code, setCode] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -63,7 +75,6 @@ export default function KioskEntry() {
   const [faceFailCount, setFaceFailCount] = useState(0);
   const [otpAllowed, setOtpAllowed] = useState(false);
   const [resetIn, setResetIn] = useState(0);
-  const [now, setNow] = useState(() => new Date());
   const submittingRef = useRef(false);
   const codeRef = useRef("");
   const faceFailCountRef = useRef(0);
@@ -76,20 +87,53 @@ export default function KioskEntry() {
     faceFailCountRef.current = faceFailCount;
   }, [faceFailCount]);
 
-  useEffect(() => {
-    const tick = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(tick);
-  }, []);
+  const requireDeviceKey = useCallback(() => {
+    clearKioskKey(roomId);
+    setKioskKey("");
+    setRoom(null);
+    setNeedsSetup(true);
+    setStep("welcome");
+    setSubmitting(false);
+    submittingRef.current = false;
+  }, [roomId]);
 
   useEffect(() => {
+    if (!roomId) return undefined;
     let cancelled = false;
+    const provision = consumeKioskProvisionParams();
+    if (provision.key) writeKioskKey(roomId, provision.key);
+    const stored = readKioskKey(roomId);
+
+    if (!stored || (provision.setup && !provision.key)) {
+      setNeedsSetup(true);
+      setKioskKey("");
+      setRoom(null);
+      setRoomError("");
+      setLoadingRoom(false);
+      return undefined;
+    }
+
+    setNeedsSetup(false);
     setLoadingRoom(true);
-    getKioskRoom(roomId)
+    setRoomError("");
+    getKioskRoom(roomId, stored)
       .then((data) => {
-        if (!cancelled) setRoom(data);
+        if (cancelled) return;
+        setRoom(data);
+        setKioskKey(stored);
+        setSetupError("");
       })
       .catch((error) => {
-        if (!cancelled) setRoomError(error.message);
+        if (cancelled) return;
+        if (error instanceof KioskAuthError) {
+          clearKioskKey(roomId);
+          setKioskKey("");
+          setRoom(null);
+          setNeedsSetup(true);
+          setSetupError(error.message);
+        } else {
+          setRoomError(error.message);
+        }
       })
       .finally(() => {
         if (!cancelled) setLoadingRoom(false);
@@ -98,6 +142,30 @@ export default function KioskEntry() {
       cancelled = true;
     };
   }, [roomId]);
+
+  const saveKioskKey = useCallback(async (event) => {
+    event.preventDefault();
+    const nextKey = setupInput.trim();
+    if (!nextKey || setupBusy) return;
+    setSetupBusy(true);
+    setSetupError("");
+    try {
+      writeKioskKey(roomId, nextKey);
+      const data = await getKioskRoom(roomId, nextKey);
+      setRoom(data);
+      setKioskKey(nextKey);
+      setNeedsSetup(false);
+      setSetupInput("");
+      setStep("welcome");
+    } catch (error) {
+      clearKioskKey(roomId);
+      setKioskKey("");
+      setRoom(null);
+      setSetupError(error instanceof KioskAuthError ? error.message : error.message);
+    } finally {
+      setSetupBusy(false);
+    }
+  }, [roomId, setupBusy, setupInput]);
 
   const backToWelcome = useCallback(() => {
     setStep("welcome");
@@ -126,7 +194,7 @@ export default function KioskEntry() {
     submittingRef.current = true;
     setSubmitting(true);
     try {
-      const result = await verifyKioskOtp(roomId, value);
+      const result = await verifyKioskOtp(roomId, value, kioskKey);
       if (result.granted) {
         setEntry(result);
         setStep("success");
@@ -137,6 +205,11 @@ export default function KioskEntry() {
         setResetIn(DENIED_RESET_SECONDS);
       }
     } catch (error) {
+      if (error instanceof KioskAuthError) {
+        setSetupError(error.message);
+        requireDeviceKey();
+        return;
+      }
       setDeniedMessage(error.message);
       setStep("denied");
       setResetIn(DENIED_RESET_SECONDS);
@@ -145,14 +218,14 @@ export default function KioskEntry() {
       setSubmitting(false);
       submittingRef.current = false;
     }
-  }, [roomId]);
+  }, [kioskKey, requireDeviceKey, roomId]);
 
   const submitFace = useCallback(async (imageBase64) => {
     if (submittingRef.current) return;
     submittingRef.current = true;
     setSubmitting(true);
     try {
-      const result = await verifyKioskFace(roomId, imageBase64);
+      const result = await verifyKioskFace(roomId, imageBase64, kioskKey);
       if (result.granted) {
         setFaceFailCount(0);
         setFaceNotice("");
@@ -166,7 +239,10 @@ export default function KioskEntry() {
       // Recognised but not entitled to this room: an OTP would hit the same check, so
       // this is a final answer rather than a scan to retry.
       if (result.identified) {
-        setDeniedMessage(message);
+        const accessMessage = message.startsWith("ไม่มี")
+          ? `ยืนยันใบหน้าได้ แต่บัญชีนี้${message}`
+          : `ยืนยันใบหน้าได้ แต่${message}`;
+        setDeniedMessage(accessMessage);
         setStep("denied");
         setResetIn(DENIED_RESET_SECONDS);
         return;
@@ -187,20 +263,26 @@ export default function KioskEntry() {
       }
 
       const attempts = faceFailCountRef.current + 1;
+      const noMatchMessage = "ไม่พบข้อมูลใบหน้าที่ตรงกัน กรุณาสแกนใหม่หรือใช้รหัส OTP สำรอง";
       setFaceFailCount(attempts);
       if (attempts >= MAX_FACE_ATTEMPTS) {
-        goToOtp(`${message} — สแกนไม่ผ่าน ${attempts} ครั้ง กรุณาใช้รหัสฉุกเฉินจากเว็บ`);
+        goToOtp(`${noMatchMessage} — สแกนไม่ผ่าน ${attempts} ครั้ง`);
       } else {
-        setFaceNotice(message);
+        setFaceNotice(noMatchMessage);
       }
     } catch (error) {
+      if (error instanceof KioskAuthError) {
+        setSetupError(error.message);
+        requireDeviceKey();
+        return;
+      }
       setOtpAllowed(true);
       setFaceNotice(error.message);
     } finally {
       setSubmitting(false);
       submittingRef.current = false;
     }
-  }, [goToOtp, roomId]);
+  }, [goToOtp, kioskKey, requireDeviceKey, roomId]);
 
   // Physical keypads and USB numpads are common on Kiosk hardware, so the on-screen
   // keys and the keyboard drive the same state.
@@ -230,10 +312,15 @@ export default function KioskEntry() {
     return () => clearTimeout(timer);
   }, [backToWelcome, resetIn]);
 
+  const handleCameraError = useCallback(() => {
+    setOtpAllowed(true);
+  }, []);
+  const clearFaceNotice = useCallback(() => {
+    setFaceNotice("");
+  }, []);
+
   const status = ROOM_STATUS[room?.status] ?? ROOM_STATUS.closed;
   const roomOpen = room?.status === "open";
-  const clock = useMemo(() => TIME_FORMAT.format(now), [now]);
-  const today = useMemo(() => DATE_FORMAT.format(now), [now]);
 
   return (
     <div className="min-h-screen w-full text-white flex flex-col bg-[radial-gradient(circle_at_20%_10%,#123B82_0%,#06132E_55%,#030918_100%)]">
@@ -247,15 +334,50 @@ export default function KioskEntry() {
             <div className="text-xs md:text-sm text-white/90">จุดเข้าใช้ห้องแล็บ</div>
           </div>
         </div>
-        <div className="text-right">
-          <div className="text-3xl md:text-5xl font-bold tabular-nums">{clock}</div>
-          <div className="text-xs md:text-sm text-white/90 mt-1">{today}</div>
-        </div>
+        <KioskClock />
       </header>
 
       <main className="flex-1 flex items-center justify-center px-6 pb-10 md:px-14">
         {loadingRoom ? (
           <p className="text-lg text-white/95">กำลังโหลดข้อมูลห้อง...</p>
+        ) : needsSetup ? (
+          <KioskPanel light>
+            <KeyRound size={64} className="text-navy-800 mx-auto" />
+            <h1 className="text-3xl md:text-4xl font-bold text-ink mt-6">ตั้งค่าเครื่องประตู</h1>
+            <p className="text-base md:text-lg text-slate-700 mt-3">
+              กรอกคีย์อุปกรณ์ของห้องนี้ครั้งเดียว คีย์จะถูกเก็บในเครื่องนี้ ไม่แสดงบนจอสแกน
+            </p>
+            <form onSubmit={saveKioskKey} className="mt-8 text-left">
+              <label className="block text-sm font-semibold text-slate-700" htmlFor="kiosk-device-key">
+                คีย์อุปกรณ์ Kiosk
+              </label>
+              <input
+                id="kiosk-device-key"
+                autoComplete="off"
+                autoFocus
+                value={setupInput}
+                onChange={(event) => setSetupInput(event.target.value)}
+                placeholder="วางคีย์ที่ได้ตอนสร้างอุปกรณ์"
+                className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-base text-ink font-mono tracking-wide focus:outline-none focus:ring-2 focus:ring-navy-200"
+              />
+              {setupError && (
+                <p className="mt-3 text-sm text-rose-600" role="alert">{setupError}</p>
+              )}
+              <button
+                type="submit"
+                disabled={!setupInput.trim() || setupBusy}
+                className="mt-6 w-full rounded-2xl bg-navy-800 text-white px-8 py-4 text-lg font-bold transition-all active:scale-95 disabled:opacity-40 disabled:active:scale-100"
+              >
+                {setupBusy ? "กำลังตรวจสอบ..." : "บันทึกคีย์เครื่องนี้"}
+              </button>
+            </form>
+            {import.meta.env.DEV && (
+              <p className="text-sm text-slate-500 mt-6 leading-relaxed">
+                โหมดทดสอบ: คีย์ตัวอย่างเป็น <span className="font-mono">dev-kiosk-key-1</span> ของห้องแรกตามชื่อ
+                (เช่น Lab A) แล้วไล่เลขตามห้องถัดไป หรือเปิด URL พร้อม <span className="font-mono">?key=...</span>
+              </p>
+            )}
+          </KioskPanel>
         ) : roomError ? (
           <KioskPanel light>
             <XCircle size={72} className="text-rose-500 mx-auto" />
@@ -271,7 +393,9 @@ export default function KioskEntry() {
             <h1 className="text-4xl md:text-6xl font-bold text-ink mt-6 tracking-tight">{room.name}</h1>
             {room.building && <p className="text-lg md:text-2xl text-slate-600 mt-2">{room.building}</p>}
             <p className="text-base md:text-xl text-slate-700 mt-8">
-              {roomOpen ? "แตะเพื่อสแกนใบหน้าเข้าใช้ห้อง" : "ห้องนี้ยังไม่เปิดให้เข้าใช้งานในขณะนี้"}
+              {roomOpen
+                ? "แตะเพื่อสแกนใบหน้าเข้าห้อง — จุดนี้ตรวจสิทธิ์เข้าประตูเท่านั้น การล็อกอินเครื่องทำที่คอมพิวเตอร์ด้านใน"
+                : "ห้องนี้ยังไม่เปิดให้เข้าใช้งานในขณะนี้"}
             </p>
 
             <button
@@ -289,6 +413,16 @@ export default function KioskEntry() {
               <div className="text-xl md:text-2xl font-bold text-ink mt-4">สแกนใบหน้า</div>
               <div className="text-sm md:text-base text-slate-600 mt-1">ทางเข้าหลัก — มองกล้องค้างไว้ ระบบจับภาพเอง</div>
             </button>
+            <button
+              type="button"
+              disabled={!roomOpen}
+              onClick={() => goToOtp("ใช้รหัส OTP 6 หลักที่ขอจากเว็บ KINOF")}
+              className="mt-4 w-full rounded-3xl border border-amber-300 bg-amber-50 px-8 py-6 text-left transition-all hover:bg-amber-100 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100"
+            >
+              <KeyRound size={34} className="text-amber-700" />
+              <div className="text-lg md:text-xl font-bold text-ink mt-3">ใช้รหัส OTP สำรอง</div>
+              <div className="text-sm md:text-base text-slate-600 mt-1">กรอกรหัส 6 หลักจากอีเมลได้ทันที</div>
+            </button>
           </KioskPanel>
         ) : step === "face" ? (
           <KioskFaceScan
@@ -297,15 +431,15 @@ export default function KioskEntry() {
             attempts={faceFailCount}
             submitting={submitting}
             onCaptured={submitFace}
-            onClearNotice={() => setFaceNotice("")}
-            onUseOtp={() => goToOtp("รหัสฉุกเฉิน — ใช้เมื่อสแกนหน้าไม่สำเร็จเท่านั้น")}
+            onClearNotice={clearFaceNotice}
+            onUseOtp={() => goToOtp("ใช้รหัส OTP 6 หลักที่ขอจากเว็บ KINOF")}
             otpAllowed={otpAllowed}
-            onCameraError={() => setOtpAllowed(true)}
+            onCameraError={handleCameraError}
             onCancel={backToWelcome}
           />
         ) : step === "otp" ? (
           <KioskPanel>
-            <h1 className="text-3xl md:text-4xl font-bold tracking-tight">รหัสฉุกเฉิน — ใช้เมื่อสแกนหน้าไม่สำเร็จเท่านั้น</h1>
+            <h1 className="text-3xl md:text-4xl font-bold tracking-tight">กรอกรหัส OTP สำรอง</h1>
             <p className="text-base md:text-lg text-white/90 mt-3">
               {room.name} · กรอกรหัส 6 หลักที่ขอจากเว็บ KINOF · ใช้ได้ครั้งเดียวภายใน 10 นาที
             </p>
@@ -384,25 +518,23 @@ export default function KioskEntry() {
         ) : step === "success" ? (
           <KioskPanel>
             <CheckCircle2 size={80} className="text-emerald-400 mx-auto" />
-            <h1 className="text-4xl md:text-5xl font-bold mt-6 tracking-tight">เข้าใช้ห้องได้</h1>
+            <h1 className="text-4xl md:text-5xl font-bold mt-6 tracking-tight">เข้าห้องได้</h1>
             <p className="text-xl md:text-2xl text-white/95 mt-3">
               {entry.user?.displayName} · {entry.room?.name}
             </p>
 
-            <div className="mt-9 rounded-3xl border border-emerald-400/30 bg-emerald-500/10 px-8 py-10">
-              <div className="flex items-center justify-center gap-2 text-emerald-200 text-sm md:text-base uppercase tracking-widest">
-                <Armchair size={18} /> ที่นั่งของคุณ
-              </div>
-              <div className="text-6xl md:text-8xl font-bold mt-4 tabular-nums">{entry.seatLabel}</div>
-              {entry.computerName && (
-                <div className="flex items-center justify-center gap-2 text-white/90 text-base md:text-lg mt-4">
-                  <Monitor size={18} /> {entry.computerName}
-                </div>
-              )}
+            <div className="mt-9 rounded-3xl border border-emerald-400/30 bg-emerald-500/10 px-8 py-8 text-left">
+              <p className="text-lg md:text-xl text-white leading-relaxed">
+                {entry.message ??
+                  "ผ่านการตรวจสิทธิ์เข้าห้องแล้ว กรุณาเดินเข้าไปเลือกเครื่องที่ว่าง แล้วเข้าสู่ระบบบัญชี KINOF ที่เครื่องนั้น"}
+              </p>
+              <p className="text-sm md:text-base text-emerald-100/90 mt-5 leading-relaxed">
+                จุดสแกนประตูกับการล็อกอินเครื่องเป็นคนละด่าน ไม่ได้จองหรือจ่ายเครื่องให้ และไม่ต้องเป็นคนเดียวกัน
+              </p>
             </div>
 
             <p className="text-base text-white/90 mt-8">
-              กรุณาไปที่เครื่องตามหมายเลข · หน้าจอจะกลับหน้าแรกใน {resetIn} วินาที
+              หน้าจอจะกลับหน้าแรกใน {resetIn} วินาที เพื่อรับคนถัดไป
             </p>
             <button
               type="button"
@@ -424,10 +556,10 @@ export default function KioskEntry() {
               {otpAllowed && (
                 <button
                   type="button"
-                  onClick={() => goToOtp("รหัสฉุกเฉิน — ใช้เมื่อสแกนหน้าไม่สำเร็จเท่านั้น")}
+                  onClick={() => goToOtp("ใช้รหัส OTP 6 หลักที่ขอจากเว็บ KINOF")}
                   className="rounded-2xl bg-gold-gradient text-navy-950 px-10 py-5 text-xl font-bold transition-all active:scale-95"
                 >
-                  กรอกรหัสฉุกเฉิน
+                  กรอกรหัส OTP สำรอง
                 </button>
               )}
               <button
@@ -441,6 +573,20 @@ export default function KioskEntry() {
           </KioskPanel>
         )}
       </main>
+    </div>
+  );
+}
+
+function KioskClock() {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const tick = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(tick);
+  }, []);
+  return (
+    <div className="text-right">
+      <div className="text-3xl md:text-5xl font-bold tabular-nums">{TIME_FORMAT.format(now)}</div>
+      <div className="text-xs md:text-sm text-white/90 mt-1">{DATE_FORMAT.format(now)}</div>
     </div>
   );
 }
@@ -481,9 +627,9 @@ function KioskFaceScan({
 
   return (
     <KioskPanel>
-      <h1 className="text-3xl md:text-4xl font-bold tracking-tight">สแกนใบหน้าเพื่อเข้าใช้ห้อง</h1>
+      <h1 className="text-3xl md:text-4xl font-bold tracking-tight">สแกนใบหน้าเพื่อเข้าห้อง</h1>
       <p className="text-base md:text-lg text-white/90 mt-3">
-        {room.name} · มองกล้องตรง ๆ ค้างไว้ครู่เดียว
+        {room.name} · มองกล้องตรง ๆ ค้างไว้ครู่เดียว · ด่านนี้เป็นประตู ไม่ใช่การล็อกอินเครื่อง
       </p>
 
       <div className="relative mx-auto mt-8 w-full max-w-xl aspect-[4/3] overflow-hidden rounded-3xl bg-black">
@@ -559,7 +705,7 @@ function KioskFaceScan({
             }}
             className="inline-flex items-center justify-center gap-2 rounded-2xl border border-amber-300/40 bg-amber-500/15 px-8 py-5 text-lg text-amber-100 transition-colors hover:bg-amber-500/25 disabled:opacity-40"
           >
-            <KeyRound size={20} /> รหัสฉุกเฉิน — ใช้เมื่อสแกนหน้าไม่สำเร็จเท่านั้น
+            <KeyRound size={20} /> ใช้รหัส OTP สำรอง
           </button>
         )}
         <button

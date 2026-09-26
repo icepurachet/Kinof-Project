@@ -82,6 +82,11 @@ export function useFaceCapture({
   const blinkSeenRef = useRef(false);
   const capturedRef = useRef(false);
 
+  const onCapturedRef = useRef(onCaptured);
+  const onErrorRef = useRef(onError);
+  onCapturedRef.current = onCaptured;
+  onErrorRef.current = onError;
+
   const [status, setStatus] = useState("loading");
   const [hint, setHint] = useState("กำลังเตรียมกล้อง...");
   const [progress, setProgress] = useState(0);
@@ -114,14 +119,14 @@ export function useFaceCapture({
     try {
       const imageBase64 = captureFrame(video);
       stopCamera();
-      onCaptured?.(imageBase64);
+      onCapturedRef.current?.(imageBase64);
     } catch (error) {
       capturedRef.current = false;
       setStatus("error");
       setHint(cameraErrorMessage(error));
-      onError?.(error);
+      onErrorRef.current?.(error);
     }
-  }, [capturingHint, onCaptured, onError, stopCamera]);
+  }, [capturingHint, stopCamera]);
 
   useEffect(() => {
     let cancelled = false;
@@ -275,7 +280,7 @@ export function useFaceCapture({
           landmarkerRef.current = null;
           setStatus("error");
           setHint(cameraErrorMessage(error));
-          onError?.(error);
+          onErrorRef.current?.(error);
         }
       }
     }
@@ -289,7 +294,7 @@ export function useFaceCapture({
       detectorRef.current = null;
       landmarkerRef.current = null;
     };
-  }, [attempt, captureNow, holdMs, onError, requireBlink, stopCamera]);
+  }, [attempt, captureNow, holdMs, requireBlink, stopCamera]);
 
   return { videoRef, status, hint, progress, retry, stopCamera, captureNow };
 }

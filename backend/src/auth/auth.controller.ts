@@ -10,7 +10,7 @@ import { AuthenticatedRequest, JwtAuthGuard } from './jwt-auth.guard';
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
-  @Post('login')
+  // HTTP login is owned by LoginOtpController; password alone must not issue tokens.
   login(@Body() loginDto: LoginDto): Promise<LoginResult> {
     return this.authService.login(loginDto);
   }

@@ -6,7 +6,7 @@ import PasswordInput from "../components/PasswordInput";
 import { NAVY, GOLD } from "../theme";
 import { login } from "../api/auth";
 
-export default function Login({ onAuthenticated }) {
+export default function Login({ onOtpRequired }) {
   const location = useLocation();
   const [roleChoice, setRoleChoice] = useState(null);
   const [username, setUsername] = useState("");
@@ -20,7 +20,7 @@ export default function Login({ onAuthenticated }) {
     setLoading(true);
     try {
       const result = await login(username, pw, roleChoice);
-      onAuthenticated?.(result);
+      onOtpRequired?.(result);
     } catch (requestError) {
       setError(requestError.message);
     } finally {
@@ -112,7 +112,7 @@ export default function Login({ onAuthenticated }) {
         {error && <p className="text-xs text-red-600 mb-3" role="alert">{error}</p>}
 
         <button disabled={loading} className="w-full text-white text-sm font-medium rounded-lg py-2.5 mb-4 disabled:opacity-60" style={{ background: NAVY }}>
-          {loading ? "กำลังเข้าสู่ระบบ..." : "เข้าสู่ระบบ"}
+          {loading ? "กำลังส่ง OTP..." : "เข้าสู่ระบบ"}
         </button>
         </form>
 

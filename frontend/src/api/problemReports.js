@@ -34,10 +34,10 @@ export function createProblemReport({ category, description, files }) {
   return apiFetch("/issues", { method: "POST", body: form }).then(mapUserIssue);
 }
 
-export async function updateProblemReportStatus(id, status) {
+export async function updateProblemReportStatus(id, status, comment) {
   await apiFetch(`/admin/issues/${id}`, {
     method: "PATCH",
-    body: JSON.stringify({ status: toApiStatus(status) }),
+    body: JSON.stringify({ status: toApiStatus(status), ...(comment ? { admin_reply: comment } : {}) }),
   });
   const rows = await getProblemReports();
   return rows.find((row) => row.id === id);
@@ -78,6 +78,8 @@ function mapUserIssue(issue) {
     id: issue.issue_id,
     status: STATUS_LABELS[issue.status] ?? issue.status,
     createdAt: issue.created_at,
+    staffNote: issue.admin_reply,
+    adminComment: issue.admin_reply,
     images: mapImages(issue.image_urls, issue.issue_id),
   };
 }
@@ -88,6 +90,8 @@ function mapAdminIssue(issue) {
     id: issue.id,
     status: STATUS_LABELS[issue.status] ?? issue.status,
     createdAt: issue.created_at,
+    staffNote: issue.admin_reply,
+    adminComment: issue.admin_reply,
     images: mapImages(issue.image_urls, issue.id),
     user: {
       id: issue.user_id,
@@ -96,4 +100,9 @@ function mapAdminIssue(issue) {
       name: issue.username,
     },
   };
+}
+
+export async function updateProblemReportStaffNote(id, note) {
+  await apiFetch(`/admin/issues/${id}`, {method:"PATCH",body:JSON.stringify({admin_reply:note})});
+  return (await getProblemReports()).find(row=>row.id===id);
 }

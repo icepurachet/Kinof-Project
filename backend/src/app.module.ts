@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { MailModule } from './mail/mail.module';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
@@ -17,6 +18,7 @@ import { AgentModule } from './agent/agent.module';
 import { AdminTrackingModule } from './admin-tracking/admin-tracking.module';
 import { AdminDataModule } from './admin-data/admin-data.module';
 import { FaceModule } from './face/face.module';
+import { LabModule } from './lab-features/lab.module';
 
 @Module({
   imports: [
@@ -37,6 +39,7 @@ import { FaceModule } from './face/face.module';
       }),
     }),
     UsersModule,
+    MailModule,
     AuthModule,
     RoomsModule,
     BookingsModule,
@@ -50,6 +53,7 @@ import { FaceModule } from './face/face.module';
     AdminTrackingModule,
     AdminDataModule,
     FaceModule,
+    LabModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -4,6 +4,7 @@ import { SuperAdminService } from './super-admin.service';
 
 jest.mock('bcrypt', () => ({ hash: jest.fn() }));
 jest.mock('typeorm', () => ({ DataSource: class DataSource {} }));
+jest.mock('@nestjs/config', () => ({ ConfigService: class ConfigService {} }));
 
 describe('SuperAdminService', () => {
   it('hash รหัสผ่านก่อนสร้างบัญชีผู้ดูแล', async () => {

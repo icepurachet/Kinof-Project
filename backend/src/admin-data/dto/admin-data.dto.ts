@@ -200,10 +200,13 @@ export class UpdateSubjectDto {
 }
 
 export class AddEnrollmentDto {
+  @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  user_id: number;
+  user_id?: number;
+
+  @IsOptional() @Matches(/^\d{10}$/) student_id?: string;
 }
 
 export class UpdateUserActiveDto {

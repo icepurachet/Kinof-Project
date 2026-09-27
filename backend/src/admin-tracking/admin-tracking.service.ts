@@ -375,6 +375,27 @@ export class AdminTrackingService {
     }
   }
 
+  async rotateAgentKey(
+    adminId: number,
+    agentId: number,
+  ): Promise<{ agent_id: number; api_key: string }> {
+    const rawKey = randomBytes(32).toString('base64url');
+    const keyHash = createHash('sha256').update(rawKey).digest('hex');
+    const result = (await this.dataSource.query(
+      `
+        UPDATE tracking_agents
+        SET api_key_hash = ?, is_enabled = 1
+        WHERE id = ?
+      `,
+      [keyHash, agentId],
+    )) as unknown;
+    if (this.readAffectedRows(result) === 0) {
+      throw new NotFoundException('ไม่พบ Tracking Agent ที่ต้องการออกคีย์ใหม่');
+    }
+    await this.audit(adminId, `ออกคีย์ใหม่ให้ Tracking Agent #${agentId}`);
+    return { agent_id: agentId, api_key: rawKey };
+  }
+
   async queueCommand(
     adminId: number,
     computerId: number,

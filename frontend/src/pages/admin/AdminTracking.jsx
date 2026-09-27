@@ -3,6 +3,8 @@ import {
   AlertTriangle,
   ArrowLeft,
   Clock3,
+  Copy,
+  KeyRound,
   Laptop,
   LogOut,
   Monitor,
@@ -18,12 +20,15 @@ import {
 import Button from "../../components/Button";
 import Card from "../../components/Card";
 import Pill from "../../components/Pill";
+import { API_URL } from "../../api/auth";
 import {
   bulkRoomAction,
+  createTrackingAgent,
   forceSeatLogout,
   getSeatActivity,
   getTrackingRooms,
   getTrackingSeats,
+  rotateTrackingAgentKey,
   updateRoomStatus,
 } from "../../api/tracking";
 
@@ -97,6 +102,7 @@ export default function AdminTracking({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [bulkAction, setBulkAction] = useState(null);
+  const [agentKey, setAgentKey] = useState(null);
 
   // Keeps polling from flipping the page back into a loading skeleton.
   const loadedOnceRef = useRef(false);
@@ -151,6 +157,10 @@ export default function AdminTracking({
       setView("rooms");
     }
   }, [initialRoomId, initialSeatId]);
+
+  useEffect(() => {
+    setAgentKey(null);
+  }, [selectedSeatId]);
 
   const room = rooms.find((item) => item.id === selectedRoomId);
   const seat = seats.find((item) => item.id === selectedSeatId);
@@ -210,6 +220,57 @@ export default function AdminTracking({
     () => forceSeatLogout(seat.id),
     `สั่งออกจากระบบ ${seat.label} แล้ว`,
   );
+
+  const provisionAgent = async () => {
+    if (!seat) return;
+    if (seat.agentRegistered && !window.confirm(
+      `ออกคีย์ใหม่สำหรับ ${seat.label}? คีย์เดิมจะใช้ไม่ได้ทันที และต้องตั้งค่า Agent เครื่องนี้ใหม่`,
+    )) return;
+
+    setBusy(true);
+    try {
+      const result = seat.agentRegistered
+        ? await rotateTrackingAgentKey(seat.agentId)
+        : await createTrackingAgent(seat.id);
+      setAgentKey({
+        apiKey: result.api_key,
+        seatLabel: seat.label,
+      });
+      await load({ silent: true });
+      notify?.(seat.agentRegistered
+        ? "ออกคีย์ Agent ใหม่แล้ว — คัดลอกทันที เพราะจะไม่แสดงอีก"
+        : "สร้าง Agent Key แล้ว — คัดลอกทันที เพราะจะไม่แสดงอีก");
+    } catch (actionError) {
+      notify?.(actionError.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const copyAgentKey = async () => {
+    if (!agentKey?.apiKey) return;
+    try {
+      await navigator.clipboard.writeText(agentKey.apiKey);
+      notify?.("คัดลอก Agent Key แล้ว");
+    } catch {
+      notify?.("คัดลอกอัตโนมัติไม่สำเร็จ กรุณาเลือกคีย์แล้วคัดลอกเอง");
+    }
+  };
+
+  const copyAgentCommands = async () => {
+    if (!agentKey?.apiKey) return;
+    const commands = [
+      `set "Kinof__ApiBaseUrl=${API_URL}"`,
+      `set "Kinof__ApiKey=${agentKey.apiKey}"`,
+      "dotnet run",
+    ].join("\r\n");
+    try {
+      await navigator.clipboard.writeText(commands);
+      notify?.("คัดลอกคำสั่งตั้งค่า Agent แล้ว");
+    } catch {
+      notify?.("คัดลอกอัตโนมัติไม่สำเร็จ กรุณาคัดลอกคีย์ด้วยตนเอง");
+    }
+  };
 
   if (loading) {
     return (
@@ -486,9 +547,44 @@ export default function AdminTracking({
           </div>
           <Button
             fullWidth
+            variant={seat.agentRegistered ? "secondary" : "primary"}
+            icon={KeyRound}
+            className="mt-5"
+            disabled={busy}
+            onClick={provisionAgent}
+          >
+            {busy
+              ? "กำลังสร้างคีย์..."
+              : seat.agentRegistered
+                ? "ออก Agent Key ใหม่"
+                : "สร้าง Agent Key"}
+          </Button>
+          <p className="text-[11px] text-slate-500 mt-2 leading-relaxed">
+            คีย์ผูกกับเครื่องนี้และจะแสดงครั้งเดียว หากออกคีย์ใหม่ Agent ที่ใช้คีย์เดิมจะเชื่อมต่อไม่ได้
+          </p>
+          {agentKey?.apiKey && agentKey.seatLabel === seat.label && (
+            <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3.5">
+              <p className="text-xs font-semibold text-amber-900">
+                แสดงครั้งเดียว — คัดลอกก่อนออกจากหน้านี้
+              </p>
+              <p className="mt-2 font-mono text-xs break-all text-slate-900 select-all">
+                {agentKey.apiKey}
+              </p>
+              <div className="grid grid-cols-1 gap-2 mt-3">
+                <Button type="button" variant="secondary" size="sm" icon={Copy} onClick={copyAgentKey}>
+                  คัดลอกเฉพาะคีย์
+                </Button>
+                <Button type="button" variant="secondary" size="sm" icon={Copy} onClick={copyAgentCommands}>
+                  คัดลอกคำสั่ง CMD ทั้งหมด
+                </Button>
+              </div>
+            </div>
+          )}
+          <Button
+            fullWidth
             variant="danger"
             icon={LogOut}
-            className="mt-5"
+            className="mt-3"
             disabled={busy || !canForceLogout}
             onClick={logoutSeat}
           >

@@ -39,6 +39,7 @@ export async function getTrackingSeats(roomId) {
     status: row.display_status,
     computerName: row.hostname,
     lastHeartbeat: row.last_seen_at,
+    agentId: row.agent_id ? Number(row.agent_id) : null,
     agentRegistered: Boolean(row.agent_id),
     agentOnline: Boolean(row.agent_id) && row.display_status !== "offline",
     session: row.session_id ? {
@@ -127,6 +128,11 @@ export function createTrackingAgent(seatId) {
   return apiFetch("/admin/tracking/agents", {
     method: "POST",
     body: JSON.stringify({ computer_id: seatId }),
+  });
+}
+export function rotateTrackingAgentKey(agentId) {
+  return apiFetch(`/admin/tracking/agents/${encodeURIComponent(agentId)}/rotate-key`, {
+    method: "POST",
   });
 }
 

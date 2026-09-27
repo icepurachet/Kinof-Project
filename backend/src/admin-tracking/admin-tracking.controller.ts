@@ -110,4 +110,12 @@ export class AdminTrackingController {
   ) {
     return this.service.createAgent(request.admin.sub, dto);
   }
+
+  @Post('agents/:agentId/rotate-key')
+  rotateAgentKey(
+    @Req() request: AdminAuthenticatedRequest,
+    @Param('agentId', ParseIntPipe) agentId: number,
+  ) {
+    return this.service.rotateAgentKey(request.admin.sub, agentId);
+  }
 }

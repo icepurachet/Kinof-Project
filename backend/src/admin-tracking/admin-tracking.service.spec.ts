@@ -132,4 +132,30 @@ describe('AdminTrackingService', () => {
       logout_commands_queued: 18,
     });
   });
+
+  it('ออกคีย์ Agent ใหม่และบันทึก audit โดยไม่คืนค่า hash', async () => {
+    const dataSource = {
+      query: jest
+        .fn()
+        .mockResolvedValueOnce({ affectedRows: 1 })
+        .mockResolvedValueOnce({ affectedRows: 1 }),
+    };
+    const service = new AdminTrackingService(
+      dataSource as unknown as DataSource,
+    );
+
+    const result = await service.rotateAgentKey(4, 12);
+
+    expect(result.agent_id).toBe(12);
+    expect(result.api_key).toEqual(expect.any(String));
+    expect(result.api_key.length).toBeGreaterThan(30);
+    expect(dataSource.query.mock.calls[0][0]).toContain(
+      'UPDATE tracking_agents',
+    );
+    expect(dataSource.query.mock.calls[0][1][1]).toBe(12);
+    expect(dataSource.query.mock.calls[1][1]).toEqual([
+      'ออกคีย์ใหม่ให้ Tracking Agent #12',
+      4,
+    ]);
+  });
 });
